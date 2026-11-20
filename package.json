@@ -1,0 +1,39 @@
+{
+  "name": "forma-mcp",
+  "version": "0.1.0",
+  "description": "Fast, compact MCP server for Autodesk Forma (site + building design) via an embedded-view bridge.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "forma-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/server.js",
+    "dev:bridge": "node dist/server.js --bridge-only",
+    "release": "node build.mjs --release",
+    "fake-bridge": "esbuild scripts/fake-bridge.ts --bundle --platform=node --format=cjs --outfile=dist/fake-bridge.cjs --log-level=error && node dist/fake-bridge.cjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ws": "^8.18.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "esbuild": "^0.25.0",
+    "forma-embedded-view-sdk": "0.96.0",
+    "happy-dom": "^15.11.7",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
