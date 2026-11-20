@@ -355,6 +355,26 @@ it("exports per-building floor area by use in CSV and HTML", async () => {
   expect(toHtml(report)).toContain("<td>Residential 2,664 m² · Commercial 394 m²</td>");
 });
 
+it("advertises report figures and returns compound edit save confirmation through MCP", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "forma-tools-report-"));
+  try {
+    vi.stubEnv("FORMA_MCP_REPORT_DIR", dir);
+    const mock = mockForma();
+    const { callResult } = await connect(mock);
+    const report = await callResult("forma_report", { germanFigures: true });
+    expect(report.isError).toBeFalsy();
+    expect(report.text).toMatch(/figures csv: .*?-figures\.csv/);
+    expect(report.text).toMatch(/figures: GRZ [\d.]+, GRZ II [\d.]+, GFZ [\d.]+/);
+    mock.F.udm.awaitPersisted = async () => { throw new Error("not persisted"); };
+    const result = await callResult("forma_edit", { ops: [{ op: "footprint", path: mock.paths.b1, polygon: [[0, 0], [9, 0], [9, 7], [0, 7]], floors: 2, floorHeight: 4 }] });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("Saved state unconfirmed");
+    expect(mock.calls.filter((c) => c.fn === "batch")).toHaveLength(1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it("preserves report pairs across same-second runs and skips an occupied CSV name", () => {
   const report = { buildings: [{ name: "First block" }] };
   const dir = mkdtempSync(join(tmpdir(), "forma-stress-report-"));

@@ -4,16 +4,37 @@
 import type { EmbeddedViewSdk } from "forma-embedded-view-sdk";
 import { FormaError } from "../shared/protocol.js";
 import {
-  type P2, type M4, type Box, IDENTITY, area, cleanRing, centroid, rect, offset, mul, translation,
-  rotationZ, bboxOfTriangles, mergeBoxes, extrude, pointInPoly, convexHull, baseOutline,
-  selfIntersects, ringLocation, ringsOverlap, r1, r2,
+  type P2, type M4, type Box, IDENTITY, area, buildableEnvelope, cleanRing, centroid, rect, offset, mul, translation,
+  rotationZ, bboxOfTriangles, mergeBoxes, extrude, prismTriangles, pointInPoly, convexHull, baseOutline,
+  selfIntersects, ringLocation, ringsOverlap, roadSurfaces, r1, r2,
 } from "../shared/geom.js";
 import { rasterMax, sunHours } from "../shared/sun.js";
 import { stackFromInternal } from "../shared/floors.js";
-import { checkRules, type RuleBuilding, type Rules } from "../shared/rules.js";
+import { addedOrWorsenedFindings, checkRules, fullFloorArea, fullStoreys, grz2LimitFor, hasGermanRules, hasGrz2Rule, hasStoreyRule, ringDistance, unconfirmedInventoryNote, type BuildingZone, type ExcludedPlotBuilding, type FloorArea, type PlotBuilding, type RuleBuilding, type RuleReport, type Rules, type Storeys } from "../shared/rules.js";
+import { calculateCapacity, capacitySearchLimit, capacityStoreyLimit, type CapacityRow } from "../shared/capacity.js";
+
+import { prepareAbstandGeometry, resolveAbstand, statutoryDepth, validAbstandRing, type AbstandOptions, type AbstandResult, type AbstandRoads } from "../shared/abstand.js";
 
 type F = EmbeddedViewSdk;
+type AreaMetrics = Awaited<ReturnType<F["areaMetrics"]["calculate"]>>;
+type BuildingMetrics = { kind: "counted"; footprint: number; gfa: number } | { kind: "excluded" };
+
+function buildingMetrics(metrics: AreaMetrics | undefined): BuildingMetrics | undefined {
+  const coverage = metrics?.builtInMetrics?.buildingCoverage?.value;
+  const breakdown = metrics?.builtInMetrics?.grossFloorArea?.functionBreakdown;
+  if (!Array.isArray(breakdown)) return undefined;
+  const areas = breakdown.flatMap(({ value }) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? [value] : []);
+  const gfa = sumAreas(areas);
+  if (coverage === "UNABLE_TO_CALCULATE" && !breakdown.length) return { kind: "excluded" };
+  if (typeof coverage !== "number" || !Number.isFinite(coverage) || coverage < 0) return undefined;
+  if (gfa > 0 || (coverage > 0 && areas.length)) return { kind: "counted", footprint: coverage, gfa };
+  if (coverage === 0) return { kind: "excluded" };
+  return undefined;
+}
 type AnyObj = Record<string, any>;
+type RenderGeojson = Parameters<F["render"]["geojson"]["add"]>[0]["geojson"];
+type FootprintDimensions = { floors?: number; floorHeight?: number; height?: number };
+type FloorStackRequest = Parameters<F["elements"]["floorStack"]["createFromFloors"]>[0];
 
 export type TreeNode = {
   path: string;
@@ -24,8 +45,11 @@ export type TreeNode = {
   cat?: string;
   func?: string;
   virtual?: boolean;
+  context?: boolean;
   transform?: number[];
   children: string[];
+  roadWidth?: number;
+  publicRoad?: boolean;
 };
 
 type UpdateOp =
@@ -55,18 +79,45 @@ export class Ops {
   private session: {
     kind?: "udm" | "proposal";
     tree?: { rootUrn: string; nodes: Map<string, TreeNode> };
+    capacity?: { revision: string; plans: Map<string, Awaited<ReturnType<Ops["planCapacity"]>>> };
     stale?: true;
   } = {};
   private funcs?: { id: string; name: string; color?: string }[];
   private undoStack: UndoEntry[] = [];
   private overlays: string[] = [];
+  private abstandOverlay?: string;
+  private capacityMesh?: string;
+  private overlayRender = Promise.resolve();
+  private batchQueue = Promise.resolve();
+  private operationQueue = Promise.resolve();
+  private capacitySaveQueued = false;
+  private saveRevision?: { before?: string; first?: string };
   private submittedAnalyses = new Map<string, { type: "sun" | "noise"; at: number }>();
 
-  constructor(private F: F) {}
+  constructor(private F: F, private log: (message: string) => void = () => {}) {}
 
   // ---------- dispatch ----------
   async run(op: string, args: AnyObj = {}): Promise<unknown> {
-    return this.dispatch(op, args);
+    if (op === "ping") return "pong";
+    const capacitySave = op === "check" && args.action === "capacity" && args.create === true && !args.preview;
+    if (capacitySave && this.capacitySaveQueued)
+      throw new FormaError("Eine Bebaubarkeitsplatzierung läuft bereits.", "Prüfen Sie den Entwurf, bevor Sie eine weitere Platzierung berechnen.");
+    if (capacitySave) this.capacitySaveQueued = true;
+    return this.runInOrder(() => this.dispatch(op, args)).finally(() => {
+      if (capacitySave) this.capacitySaveQueued = false;
+    });
+  }
+
+  // Panel refreshes and MCP requests share the SDK with persistence.
+  runInOrder<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.operationQueue.then(action);
+    this.operationQueue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  observeRevision(rootUrn: string) {
+    const observation = this.saveRevision;
+    if (observation && rootUrn !== observation.before) observation.first ??= rootUrn;
   }
 
   private async dispatch(op: string, args: AnyObj): Promise<unknown> {
@@ -76,7 +127,7 @@ export class Ops {
       case "find": return this.find(args);
       case "read": return this.read(args);
       case "metrics": return this.metrics(args);
-      case "check": return this.check(args);
+      case "check": return args.action === "capacity" ? this.capacity(args) : this.check(args);
       case "report": return this.report(args);
       case "create": return this.create(args);
       case "edit": return this.edit(args);
@@ -85,7 +136,6 @@ export class Ops {
       case "analysis": return this.analysis(args);
       case "site": return this.site(args);
       case "script": return this.script(args);
-      case "ping": return "pong";
       default:
         throw new FormaError(`unknown op '${op}'${action ? "" : ""}`, "Use one of the forma_* tools.");
     }
@@ -106,16 +156,45 @@ export class Ops {
   }
 
   /** One atomic batch of add/replace/remove, then wait until persisted so reads see it. */
-  private async applyBatch(ops: UpdateOp[], wait = true) {
+  private applyBatch(ops: UpdateOp[], wait = true, expectedRoot?: string) {
+    const next = this.batchQueue.then(() => this.commitBatch(ops, wait, expectedRoot));
+    this.batchQueue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private async commitBatch(ops: UpdateOp[], wait: boolean, expectedRoot?: string) {
     this.requireWritablePage();
+    const id = Math.random().toString(36).slice(2, 10);
+    const before = await this.rootUrn().catch(() => undefined);
+    if (expectedRoot !== undefined && expectedRoot !== before)
+      throw new FormaError("Der Entwurf hat sich während der Berechnung geändert.", "Berechnen Sie die Bebaubarkeit im aktuellen Entwurf neu.");
     const session = this.session;
-    const results = await this.F.elements.batch({ operations: ops as any });
-    const confirmed = wait && await withTimeout(this.F.udm.awaitPersisted(), 20000).then(() => true, () => false);
-    // Other reads may have cached the proposal while the save was pending.
+    const revision = (urn?: string) => urn?.split(":").at(-1) ?? "unavailable";
+    const observation: { before?: string; first?: string } = { before };
+    this.saveRevision = observation;
+    this.log(`save ${id} before batch: revision=${revision(before)}`);
+    let results: Awaited<ReturnType<F["elements"]["batch"]>>;
+    let confirmed = false;
+    let waitError: unknown;
+    try {
+      results = await this.F.elements.batch({ operations: ops as any });
+      // The subscription observes the optimistic revision without interrupting awaitPersisted.
+      if (wait) confirmed = await withTimeout(this.F.udm.awaitPersisted().catch((error: unknown) => {
+        this.log(`save ${id} awaitPersisted SDK error: ${String(error)}`);
+        throw error;
+      }), 20000).then(() => true, (error: unknown) => { waitError = error; return false; });
+    } finally {
+      this.saveRevision = undefined;
+    }
+    this.log(`save ${id} after batch: revision=${revision(observation.first)}`);
     session.tree = undefined;
-    const readback = this.readTree(session, true);
+    session.capacity = undefined;
+    let readbackUrn: string | undefined;
+    const readback = this.readTree(session, true, (urn) => { readbackUrn = urn; });
     const nodes = await (wait && !confirmed ? withTimeout(readback, SAVE_READBACK_MS) : readback).catch(() => undefined);
+    this.log(`save ${id} ${wait && !confirmed ? "after persistence failure" : "at readback"}: revision=${revision(readbackUrn)}`);
     const unreadableSave = wait && !confirmed && !nodes;
+    if (wait && !confirmed) this.log(`save ${id} unconfirmed: ${String(waitError)}${nodes ? "" : "; revision unreadable"}`);
     if (unreadableSave) session.stale = true;
     const issues = ops.flatMap((op, i) => {
       if (op.type === "add") {
@@ -134,6 +213,7 @@ export class Ops {
       "Saved state unconfirmed (NOT CONFIRMED).",
       !confirmed ? (wait ? "Forma did not confirm saving within 20 seconds." : "The call did not wait for Forma to confirm saving.") : "",
       ...issues,
+      `Diagnostic ID: ${id}.`,
     ].filter(Boolean).join(" ");
     return { results, nodes, verified, saved, fix: unreadableSave ? STALE_SAVE_FIX : saved ? CHECK_SAVE_FIX : undefined };
   }
@@ -147,9 +227,10 @@ export class Ops {
     return this.readTree(this.session);
   }
 
-  private async readTree(session: Ops["session"], fresh = false): Promise<Map<string, TreeNode>> {
+  private async readTree(session: Ops["session"], fresh = false, onRoot?: (urn: string) => void): Promise<Map<string, TreeNode>> {
     const wasStale = session.stale;
     const rootUrn = await this.rootUrn();
+    onRoot?.(rootUrn);
     const cached = session.tree;
     if (!fresh && !session.stale && cached && cached.rootUrn === rootUrn) return cached.nodes;
     const { elements } = await this.F.elements.get({ urn: rootUrn, recursive: true });
@@ -162,7 +243,14 @@ export class Ops {
       const node: TreeNode = {
         path, urn, key, parent, name: name ?? p.name, cat: p.category, func: p.functionId,
         virtual: p.virtual || undefined, transform, children: [],
+        context: (parent && nodes.get(parent)?.context) || urn.startsWith("urn:adsk-forma-elements:base:") || p.category === "base" || undefined,
       };
+      if (p.category === "road") {
+        if (typeof p.width === "number" && Number.isFinite(p.width) && p.width > 0) node.roadWidth = p.width;
+        if (typeof p.isPublic === "boolean") node.publicRoad = p.isPublic;
+        else if (p.access === "private" || p.access === "no") node.publicRoad = false;
+        else if (p.access === "public") node.publicRoad = true;
+      }
       nodes.set(path, node);
       for (const c of (el?.children ?? []) as AnyObj[]) {
         const cp = `${path}/${c.key}`;
@@ -322,10 +410,20 @@ export class Ops {
   }
 
   /** Cheap per-element measurements, computed only for requested fields. */
-  private async measure(n: TreeNode, fields: string[]): Promise<AnyObj> {
+  private async readAreaMetrics(paths: string[]): Promise<AreaMetrics | undefined> {
+    try { return await this.F.areaMetrics.calculate({ paths }); } catch { return undefined; }
+  }
+
+  private async measure(n: TreeNode, fields: string[], plot?: P2[], metrics?: Promise<AreaMetrics | undefined>): Promise<AnyObj> {
     const out: AnyObj = {};
     const F = this.F;
     const want = (f: string) => fields.includes(f);
+    let world = IDENTITY;
+    if (plot) {
+      const nodes = this.session.tree?.nodes;
+      for (let element: TreeNode | undefined = n; element; element = element.parent ? nodes?.get(element.parent) : undefined)
+        world = mul(element.transform ?? IDENTITY, world);
+    }
     const jobs: Promise<void>[] = [];
     if (want("area")) jobs.push(this.footprint(n.path).then((fp) => {
       if (fp?.type === "Polygon" && fp.coordinates.length > 2) out.area = r1(area(fp.coordinates as P2[]));
@@ -339,21 +437,50 @@ export class Ops {
     }).catch(() => {}));
     if (want("floors") || want("gfa")) jobs.push(F.elements.representations.grossFloorAreaPolygons({ urn: n.urn as any }).then((rep) => {
       if (!rep?.data?.length) return;
-      const elevs = new Set(rep.data.map((g: AnyObj) => r2(g.elevation)));
-      out.floors = elevs.size;
-      out.gfa = r1(rep.data.reduce((s: number, g: AnyObj) => s + multiRingArea(g.grossFloorPolygon), 0));
+      const levels = floorLevels(rep.data);
+      if (!levels) return;
+      out.floors = levels.size;
+      out.gfa = r1(sumAreas(levels.values()));
+      if (want("storeyAreas")) {
+        out.floorAreas = ascendingAreas(levels);
+        const clipped = plot && floorLevels(rep.data, plot, world);
+        if (clipped) out.plotFloorAreas = ascendingAreas(clipped);
+      }
     }).catch(() => {}));
     await Promise.all(jobs);
     // Native Forma buildings carry "floor" children instead of GFA polygons.
-    if ((want("floors")) && out.floors === undefined && n.cat === "building") {
+    if (want("floors") && out.floors === undefined && n.cat === "building") {
       const nodes = this.session.tree?.nodes;
-      const fl = n.children.filter((c) => nodes?.get(c)?.cat === "floor").length;
-      if (fl) out.floors = fl;
+      const floors = n.children.flatMap((path) => {
+        const node = nodes?.get(path);
+        return node?.cat === "floor" ? [node] : [];
+      });
+      if (floors.length) {
+        out.floors = floors.length;
+        if (want("storeyAreas")) {
+          const children = await pool(floors, 4, async (floor) => {
+            const rep = await F.elements.representations.grossFloorAreaPolygons({ urn: floor.urn as any }).catch(() => undefined);
+            const transform = floor.transform ?? IDENTITY;
+            return (rep?.data ?? []).map((part) => ({
+              elevation: transform[14] + transform[10] * part.elevation,
+              grossFloorPolygon: plot ? transformFloorPolygon(part, transform) : part.grossFloorPolygon,
+            }));
+          });
+          const parts = children.map((parts) => floorLevels(parts));
+          const levels = floorLevels(children.flat());
+          if (parts.every((part) => part?.size === 1) && levels?.size === floors.length) {
+            out.floorAreas = ascendingAreas(levels);
+            const clipped = plot && floorLevels(children.flat(), plot, world);
+            if (clipped) out.plotFloorAreas = ascendingAreas(clipped);
+            out.gfa = r1(sumAreas(levels.values()));
+          }
+        }
+      }
     }
     // Fall back to Forma's own area metrics for this one element (matches Forma's UI).
     if ((want("gfa") && out.gfa === undefined) || (want("area") && out.area === undefined && n.cat === "building") || want("use")) {
-      const m = await F.areaMetrics.calculate({ paths: [n.path] }).catch(() => undefined);
-      if (m) {
+      const m = await (metrics ?? this.readAreaMetrics([n.path]));
+      if (m?.builtInMetrics?.grossFloorArea?.functionBreakdown) {
         const fb = m.builtInMetrics.grossFloorArea.functionBreakdown;
         const g = fb.reduce((s, f) => s + (typeof f.value === "number" ? f.value : 0), 0);
         if (want("use")) {
@@ -364,7 +491,10 @@ export class Ops {
           out.uses = uses.map((f) => `${nm(f)} ${f.value.toLocaleString("en-GB", { maximumFractionDigits: 1 })} m²`).join(" · ");
         }
         if (want("gfa") && out.gfa === undefined && g > 0) out.gfa = r1(g);
-        const cov = m.builtInMetrics.buildingCoverage.value;
+        // Context meshes can report 0 when there is no floor geometry to measure.
+        if (want("storeyAreas") && (g > 0 || out.floors !== undefined) && fb.length
+            && fb.every((f) => typeof f.value === "number" && Number.isFinite(f.value))) out.floorArea = g;
+        const cov = m.builtInMetrics.buildingCoverage?.value;
         if (want("area") && out.area === undefined && typeof cov === "number" && cov > 0) out.area = r1(cov);
       }
     }
@@ -439,77 +569,507 @@ export class Ops {
   }
 
   // ---------- planning rules + report (Forma has neither for the user's own limits) ----------
-  private async siteBuildingScope(nodes: Map<string, TreeNode>) {
+  private async siteBoundary(nodes: Map<string, TreeNode>) {
     const siteNode = [...nodes.values()].find((n) => n.cat === "site_limit");
     const sfp = siteNode ? await this.footprint(siteNode.path).catch(() => undefined) : undefined;
     const site = sfp?.type === "Polygon" && sfp.coordinates.length > 2 ? cleanRing(sfp.coordinates as P2[]) : undefined;
+    return { site, sitePath: siteNode?.path };
+  }
+
+  private async siteBuildingScope(nodes: Map<string, TreeNode>) {
+    const { site, sitePath } = await this.siteBoundary(nodes);
     const all = [...nodes.values()].filter((n) => n.cat === "building");
     const inside = site && await this.F.geometry.getPathsInsidePolygons({ polygons: [[...site, site[0]]] })
-      .then((paths) => new Set(paths), () => new Set<string>());
-    const buildings = inside ? all.filter((n) => inside.has(n.path)) : all;
-    return { site, paths: buildings.map((n) => n.path), aliases: buildingAliases(buildings) };
+      .then((paths) => new Set(paths), () => undefined);
+    const buildings = all.filter((n) => !n.context && (!site || inside?.has(n.path)));
+    const primary = new Set(buildings.map((n) => n.path));
+    const primaryNames = new Set(buildings.map((n) => n.name));
+    const aliases = buildingAliases(buildings);
+    const remaining = all.filter((n) => !primary.has(n.path)).map((n) => ({ path: n.path, name: primaryNames.has(n.name) ? undefined : n.name }));
+    for (const [path, alias] of buildingAliases(remaining, aliases.size))
+      aliases.set(path, alias);
+    return { site, sitePath, inside, paths: buildings.map((n) => n.path), aliases };
   }
 
   /** Buildings counted on the site: those inside the site boundary, or a given subset. */
-  private async siteBuildings(a: AnyObj): Promise<{ site?: P2[]; buildings: RuleBuilding[]; gfa: AnyObj[] }> {
+  private async siteBuildings(a: AnyObj, rules: Rules = {}, includeIntersecting = false, germanFigures = false) {
     const nodes = await this.getTree();
     const scope = await this.siteBuildingScope(nodes);
     const paths = a.paths || a.from || a.category
       ? (await this.targets(a)).filter((p) => nodes.get(p)?.cat === "building")
-      : scope.paths;
-    const rows = await pool(paths, 8, async (path) => {
+      : includeIntersecting && scope.site ? [...nodes.values()].filter((n) => n.cat === "building").map((n) => n.path) : scope.paths;
+    const outlines = new Map<string, P2[] | undefined>();
+    const measured = await pool(paths, 8, async (path) => {
       const n = nodes.get(path)!;
-      const [fp, m] = await Promise.all([this.footprint(path).catch(() => undefined), this.measure(n, ["height", "floors", "gfa", "use"])]);
-      const ring = fp?.type === "Polygon" && fp.coordinates.length > 2 ? cleanRing(fp.coordinates as P2[]) : undefined;
-      return { path, name: n.name, uses: m.uses, func: (await this.funcName(n.func)) ?? (m.use as string | undefined), ring, height: m.height as number | undefined, floors: m.floors as number | undefined, gfa: m.gfa as number | undefined };
+      const nFootprint = await this.footprint(path).catch(() => undefined);
+      let ring: P2[] | undefined;
+      if (nFootprint?.type === "Polygon" && nFootprint.coordinates.length > 2) {
+        try { ring = cleanRing(nFootprint.coordinates); } catch { /* unreadable footprint */ }
+      }
+      if (includeIntersecting) {
+        outlines.set(path, ring);
+        if (scope.site && ring && !scope.inside?.has(path) && !ringsOverlap(scope.site, ring)) return undefined;
+      }
+      const fields = ["height", "floors", "gfa", ...(includeIntersecting ? [] : ["use"])];
+      if (rules.maxGfz !== undefined || includeIntersecting || germanFigures) fields.push("storeyAreas");
+      // The SDK returns aggregates for the requested paths. Query one building to identify its contribution.
+      const metrics = includeIntersecting && scope.site && !n.context ? this.readAreaMetrics([path]) : undefined;
+      const m = await this.measure(n, fields, includeIntersecting ? scope.site : undefined, metrics);
+      const storeys: Storeys = { path, name: n.name, floors: m.floors, floorAreas: m.floorAreas, floorArea: m.floorAreas ? undefined : m.floorArea };
+      return { ...storeys, context: n.context, plotFloorAreas: m.plotFloorAreas as number[] | undefined, uses: m.uses,
+        func: includeIntersecting ? undefined : (await this.funcName(n.func)) ?? (m.use as string | undefined),
+        ring, height: m.height as number | undefined, gfa: m.gfa as number | undefined,
+        metrics: buildingMetrics(await metrics) };
     });
+    const rows = measured.filter((row) => row !== undefined);
     labelBuildings(rows, scope.aliases);
     return {
       site: scope.site,
-      buildings: rows.filter((r) => r.ring).map((r) => ({ path: r.path, name: r.name, ring: r.ring!, height: r.height, floors: r.floors })),
-      gfa: rows.map((r) => ({ path: r.path, name: r.name ?? "", use: r.func ?? "", uses: r.uses ?? "", floors: r.floors ?? "", height_m: r.height ?? "", footprint_m2: r.ring ? r1(area(r.ring)) : "", gfa_m2: r.gfa ?? "" })),
+      sitePath: scope.sitePath,
+      inside: scope.inside,
+      aliases: scope.aliases,
+      outlines,
+      buildings: rows.flatMap((r) => r.ring ? [{ path: r.path, name: r.name, ring: r.ring, height: r.height, floors: r.floors }] : []),
+      storeys: rows,
+      gfa: rows.map((r) => ({ path: r.path, name: r.name ?? "", use: r.func ?? "", uses: r.uses ?? "", floors: r.floors ?? "",
+        ...(hasStoreyRule(rules) ? { full_storeys: fullStoreys(r.floors, rules.nonFullTopFloors ?? 0) ?? "" } : {}),
+        height_m: r.height ?? "", footprint_m2: r.ring ? r1(area(r.ring)) : "", gfa_m2: r.gfa ?? "" })),
     };
   }
 
-  /** check {rules:{maxHeight,maxFloors,maxFar,maxCoverage,minSetback,minSpacing}, show?} */
-  async check(a: AnyObj) {
-    const rules = (a.rules ?? {}) as Rules;
-    const keys = ["maxHeight", "maxFloors", "maxFar", "maxCoverage", "minSetback", "minSpacing"] as const;
-    if (!keys.some((k) => typeof rules[k] === "number"))
-      throw new FormaError("no rules given", "Pass rules:{maxHeight?, maxFloors?, maxFar?, maxCoverage? (percent), minSetback?, minSpacing?} in metres.");
-    const [sb, m] = await Promise.all([this.siteBuildings(a), this.metrics({})]);
-    const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-    const scoped = !!(a.paths || a.from || a.category);
-    let footprint = num(m.footprint_m2);
-    if (scoped && rules.maxCoverage !== undefined && footprint === undefined && num(m.site_area_m2)) {
-      const full = await this.siteBuildings({});
-      footprint = full.buildings.reduce((sum, b) => sum + area(b.ring), 0);
+  private async siteInventory(rules: Rules, includeContext: boolean) {
+    const stock = await this.siteBuildings({}, rules, true);
+    const plot = stock.site;
+    const inventory: PlotBuilding[] = [];
+    const excludedContext: ExcludedPlotBuilding[] = [];
+    const missingOutlines: string[] = [];
+    const confirmed = !stock.storeys.some((row) => plot && !row.context && row.metrics === undefined);
+    for (const row of stock.storeys) {
+      const { path, name, ring } = row;
+      const metrics = confirmed && row.metrics?.kind === "counted" ? row.metrics : undefined;
+      const reason = row.context ? "context layer" : confirmed && row.metrics?.kind === "excluded" ? "no floor data in Forma" : undefined;
+      const counted = !reason || includeContext;
+      if (!validAbstandRing(ring)) {
+        if (counted) missingOutlines.push(name ?? path);
+        continue;
+      }
+      if (!plot) continue;
+      const outlineArea = clippedArea(ring, plot);
+      if (outlineArea <= 1e-8) continue;
+      const share = Math.min(1, outlineArea / area(ring));
+      const footprint_m2 = metrics ? metrics.footprint * share : outlineArea;
+      const floors = row.floors ?? (row.height !== undefined && Number.isFinite(row.height) && row.height > 0
+        ? Math.max(1, Math.round(row.height / 3)) : undefined);
+      const floorArea = (excluded: number): FloorArea | undefined => {
+        const clipped = row.plotFloorAreas && fullFloorArea({ ...row, floorArea: undefined, floorAreas: row.plotFloorAreas }, excluded);
+        if (metrics) {
+          const polygonGfa = row.floorAreas && sumAreas(row.floorAreas);
+          if (clipped !== undefined && polygonGfa) return { m2: metrics.gfa * (clipped / polygonGfa), source: "measured" };
+          if (excluded === 0 || metrics.gfa === 0) return { m2: metrics.gfa * share, source: share < 1 - 1e-8 ? "estimated" : "measured" };
+          if (floors === undefined) return undefined;
+          if (excluded >= floors) return { m2: 0, source: row.floors === undefined ? "estimated" : "measured" };
+          return { m2: metrics.gfa * share * Math.max(0, floors - excluded) / floors, source: "estimated" };
+        }
+        if (clipped !== undefined) return { m2: clipped, source: "measured" };
+        const measured = fullFloorArea(row, excluded);
+        if (measured !== undefined)
+          return { m2: measured * share, source: share < 1 - 1e-8 ? "estimated" : "measured" };
+        if (floors === undefined) return undefined;
+        const typicalArea = fullFloorArea(row, 0);
+        return { m2: typicalArea !== undefined && floors > 0
+          ? typicalArea * share * Math.max(0, floors - excluded) / floors
+          : footprint_m2 * Math.max(0, floors - excluded), source: "estimated" };
+      };
+      const building = {
+        path, name, floors, footprint_m2, totalFloorArea: floorArea(0), fullFloorArea: floorArea(rules.nonFullTopFloors ?? 0),
+      };
+      if (reason && !includeContext) excludedContext.push({ ...building, reason });
+      else inventory.push(building);
     }
-    const r = checkRules({ site: sb.site, siteArea: num(m.site_area_m2), gfa: num(m.gfa_m2), footprint, buildings: sb.buildings }, rules);
-    if (a.show) {
+    return { ...stock, inventory, excludedContext, missingOutlines, inventoryNote: confirmed ? undefined : unconfirmedInventoryNote };
+  }
+
+  private async abstandScene(options: AbstandOptions, site: P2[] | undefined, aliases: Map<string, string>, targetPaths?: Set<string>, capacityDepth?: number, outlines?: Map<string, P2[] | undefined>) {
+    const nodes = [...(await this.getTree()).values()].filter((node) => node.cat === "building");
+    const { law, state, factor, reduced } = resolveAbstand(options);
+    const scene = await pool(nodes, 8, async (node) => {
+      const [fp, mesh] = await Promise.all([
+        outlines?.has(node.path) ? undefined : this.footprint(node.path).catch(() => undefined),
+        this.F.geometry.getTriangles({ path: node.path }).catch(() => undefined),
+      ]);
+      let ring = outlines?.get(node.path);
+      if (fp?.type === "Polygon") {
+        try { ring = cleanRing(fp.coordinates); } catch { /* unreadable footprint */ }
+      }
+      if (!validAbstandRing(ring)) ring = undefined;
+      const measured = mesh && bboxOfTriangles(mesh);
+      const box = measured && [...measured.min, ...measured.max].every(Number.isFinite) ? measured : undefined;
+      const height = box && box.max[2] - box.min[2];
+      const bounds = ring ?? (box && rect(box.min[0], box.min[1], box.max[0] - box.min[0], box.max[1] - box.min[1]));
+      const reach = typeof factor === "number" && height && Number.isFinite(height)
+        ? statutoryDepth(state, height, factor, Math.max(law.min_m, reduced?.min_m ?? 0)) : Infinity;
+      return { path: node.path, name: node.name, context: node.context, ring, height, bounds, reach };
+    });
+    labelBuildings(scene, aliases);
+    const targets = scene.filter((b) => targetPaths ? targetPaths.has(b.path)
+      : !b.context && (!site || (b.bounds ? ringsOverlap(site, b.bounds) : true)));
+    // Include both buildings' maximum depths plus 1 m for conservative broad-phase selection.
+    // Missing bounds or height cannot rule a building out.
+    const reference = capacityDepth !== undefined && site ? [...targets, { bounds: site, reach: capacityDepth }] : targets;
+    const reaches = (a: typeof scene[number], b: { bounds?: P2[]; reach: number }) =>
+      !a.bounds || !b.bounds || ringDistance(a.bounds, b.bounds) <= a.reach + b.reach + 1;
+    const targetSet = new Set(targets.map((b) => b.path));
+    const neighbours = scene.filter((b) => !targetSet.has(b.path) && reference.some((target) => reaches(b, target)));
+    // The Bavarian reduced-depth option depends on conflicts on the other façades of each neighbour.
+    // A second search preserves those eligibility checks without expanding the set of reported targets.
+    const nearby = new Set(neighbours.map((b) => b.path));
+    const eligibility = options.bayern16m && state === "BY" ? scene.filter((b) =>
+      !targetSet.has(b.path) && !nearby.has(b.path) && neighbours.some((other) => reaches(b, other))) : [];
+    return { targets, neighbours: [...neighbours, ...eligibility] };
+  }
+
+  private async buildingZones(rules: Rules, site?: P2[]): Promise<BuildingZone[]> {
+    if (rules.zoneRing) {
+      ringOf(rules.zoneRing, undefined, "The building zone");
+      return [];
+    }
+    const name = rules.zone?.trim().toLowerCase();
+    const nodes = [...(await this.getTree()).values()].filter((n) =>
+      ZONE_CATEGORIES.has(n.cat?.toLowerCase() ?? ""));
+    const zones = (await pool(nodes, 8, async (n) => {
+      const fp = await this.footprint(n.path).catch(() => undefined);
+      if (fp?.type !== "Polygon") return undefined;
+      try {
+        const ring = cleanRing(fp.coordinates);
+        if (area(ring) <= 1e-8 || selfIntersects(ring) || (site && !ringsOverlap(site, ring))) return undefined;
+        return { name: n.name?.trim() || n.path, ring };
+      } catch { return undefined; }
+    })).filter((z) => z !== undefined);
+    if (!zones.length) throw new FormaError("no building zone drawn", "Draw it in Forma with Limits > Zone, then run the check again.");
+    if (name && !zones.some((z) => z.name.toLowerCase() === name))
+      throw new FormaError(`Building zone "${rules.zone}" was not found on this site`, "Check the zone name in Forma, or leave it blank to use all zones on the site.");
+    return zones;
+  }
+
+  private async abstandRoads(): Promise<AbstandRoads> {
+    const nodes = [...(await this.getTree()).values()].filter((n) => n.cat === "road" && !n.virtual && n.publicRoad !== false);
+    const result: AbstandRoads = { surfaces: [], missingWidth: 0, unreadable: 0, estimatedCentre: false, publicUnconfirmed: false };
+    const geometry = await pool(nodes, 8, async (n) => ({ node: n, footprint: await this.footprint(n.path).catch(() => undefined) }));
+    for (const { node, footprint } of geometry) {
+      if (!footprint || !footprint.coordinates.every((p) => p.every(Number.isFinite))) { result.unreadable++; continue; }
+      if (footprint.type === "LineString") {
+        if (!node.roadWidth) { result.missingWidth++; continue; }
+        const polygons = roadSurfaces(footprint.coordinates, node.roadWidth);
+        if (!polygons.length) { result.unreadable++; continue; }
+        result.surfaces.push(...polygons);
+      } else {
+        const ring = (() => {
+          try { return cleanRing(footprint.coordinates); } catch { return undefined; }
+        })();
+        if (!ring || area(ring) < 1e-8 || selfIntersects(ring)) { result.unreadable++; continue; }
+        result.surfaces.push({ ring });
+        result.estimatedCentre = true;
+      }
+      result.publicUnconfirmed ||= node.publicRoad === undefined;
+    }
+    return result;
+  }
+
+  private async planningCheck(a: AnyObj, sb: Awaited<ReturnType<Ops["siteBuildings"]>>, m: Awaited<ReturnType<Ops["metrics"]>> | undefined, rules: Rules, coverageFallback = false, germanFigures = false) {
+    const num = (v: unknown) => typeof v === "number" ? v : undefined;
+    const scoped = !!(a.paths || a.from || a.category);
+    const grz = germanFigures || hasGrz2Rule(rules);
+    const siteWide = grz || rules.maxGfz !== undefined;
+    const legacyCoverage = coverageFallback && rules.maxCoverage !== undefined && num(m?.footprint_m2) === undefined && !!(m?.site_area_m2 || sb.site);
+    const [full, zones, parkingArea, roads, scene] = await Promise.all([
+      siteWide ? this.siteInventory(rules, a.includeContext === true) : undefined,
+      rules.insideZone ? this.buildingZones(rules, sb.site) : undefined,
+      grz && rules.ancillaryArea_m2 === undefined && sb.site && sb.sitePath
+        ? this.readAreaMetrics([sb.sitePath]).then((r) => num(r?.parkingStatistics?.area))
+        : undefined,
+      rules.abstand && rules.abstand.allowRoadHalf !== false && sb.site ? this.abstandRoads() : undefined,
+      rules.abstand ? this.abstandScene(rules.abstand, sb.site, sb.aliases, scoped ? new Set(sb.storeys.map((b) => b.path)) : undefined) : undefined,
+    ]);
+    const coverageBuildings = scoped && legacyCoverage ? await this.siteBuildings({}, rules) : sb;
+    const outlineArea = () => coverageBuildings.buildings.reduce((sum, b) => sum + area(b.ring), 0);
+    if (scene) {
+      const names = new Map([...(full?.storeys ?? []), ...sb.storeys].map((b) => [b.path, b.name]));
+      for (const b of [...scene.targets, ...scene.neighbours]) b.name = names.get(b.path) ?? b.name;
+    }
+    const report = checkRules({
+      site: sb.site, siteArea: num(m?.site_area_m2) ?? (sb.site && area(sb.site)), gfa: num(m?.gfa_m2),
+      footprint: scoped && legacyCoverage ? outlineArea() : num(m?.footprint_m2),
+      buildings: sb.buildings, zones, parkingArea, storeys: sb.storeys,
+      plotArea: sb.site ? area(sb.site) : 0,
+      plotFootprint: full ? full.missingOutlines.length ? null : sumAreas(full.inventory.map((b) => b.footprint_m2)) : undefined,
+      plotInventory: full?.missingOutlines.length ? undefined : full?.inventory,
+      plotStoreys: full?.missingOutlines.length ? null : undefined,
+      abstandTargets: scene?.targets, abstandNeighbours: scene?.neighbours,
+      abstandRoads: roads, germanFigures,
+    }, rules);
+    if (full?.missingOutlines.length) report.skipped.push(`Building footprints unavailable for: ${full.missingOutlines.join(", ")}`);
+    return { ...report, plotInventory: full?.inventory, excludedContext: full?.excludedContext, inventoryNote: full?.inventoryNote };
+  }
+
+  async check(a: AnyObj) {
+    const rules: Rules = a.rules ?? {};
+    const keys = ["maxHeight", "maxFloors", "maxFar", "maxCoverage", "minSetback", "minSpacing"] as const;
+    if (!keys.some((k) => typeof rules[k] === "number") && !hasGrz2Rule(rules) && !hasStoreyRule(rules) && !rules.insideZone && !rules.abstand)
+      throw new FormaError("no rules given", "Enter a planning limit to check, for example maxHeight: 15, maxGrz: 0.4, maxGfz: 1.2, insideZone: true or abstand: {}.");
+    const [sb, m] = await Promise.all([this.siteBuildings(a, rules), this.metrics({}).catch(() => undefined)]);
+    const scoped = !!(a.paths || a.from || a.category);
+    const r = await this.planningCheck(a, sb, m, rules, true, a.includeContext === true);
+    const legacyShow = a.show && (!rules.abstand || Object.keys(rules).some((key) => key !== "abstand"));
+    if (legacyShow) {
       const colors = new Map<string, string>();
       for (const b of sb.buildings) colors.set(b.path, "#2e9e5b");
-      for (const v of r.violations) { if (v.path) colors.set(v.path, "#d93025"); if (v.other) colors.set(v.other, "#d93025"); }
+      for (const v of r.violations) { if (v.rule === "abstand") continue; if (v.path) colors.set(v.path, "#d93025"); if (v.other) colors.set(v.other, "#d93025"); }
       if (colors.size) await this.F.render.elementColors.set({ pathsToColor: colors }).catch(() => {});
     }
+    const stripNote = a.show && r.abstand ? await this.showAbstand(r.abstand) : "";
     const note = [
       scoped && (rules.maxFar !== undefined || rules.maxCoverage !== undefined)
         ? "FAR and coverage are site-wide figures. Building counts and other checks use the selected buildings." : "",
-      a.show ? "Buildings that break a rule are red, the others green (view only, clear with forma_view action:clear_colors)." : "",
+      scoped && (hasGrz2Rule(rules) || rules.maxGfz !== undefined)
+        ? "GRZ, GRZ II and GFZ are site-wide figures." : "",
+      stripNote,
+      legacyShow ? "Buildings that break a rule are red, the others green (view only, clear with forma_view action:clear_colors)." : "",
     ].filter(Boolean).join(" ");
     return { ...r, note: note || undefined, missing_outline: sb.gfa.length - sb.buildings.length || undefined };
   }
 
+  private async capacity(a: AnyObj) {
+    const rules: Rules = a.rules ?? {};
+    const floorHeight: number = a.floorHeight ?? 3;
+    capacityStoreyLimit(rules, floorHeight);
+    const add = a.mode === "add";
+    const save = a.create === true && !a.preview;
+    const includeContext = a.includeContext === true;
+    const modelUrn = save || add ? await this.rootUrn() : undefined;
+    const session = this.session;
+    const key = JSON.stringify([rules, floorHeight, includeContext, a.targetUse], (_key, value: unknown) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) : value);
+    const cached = add && save && !session.stale && session.capacity?.revision === modelUrn
+      ? session.capacity?.plans.get(key) : undefined;
+    const plan = cached ?? await this.planCapacity(rules, floorHeight, add, save, includeContext);
+    if (plan.kind === "refused") {
+      if (a.preview || a.create) await this.queueOverlayRender(() => this.clearCapacityMesh()).catch(() => {});
+      return plan.result;
+    }
+    const { outcome, failedChecks } = plan;
+    const { block } = outcome;
+    const validationNote = outcome.incomplete ? "Not validated. Required data is missing." : undefined;
+    if (!block || (save && outcome.incomplete)) {
+      if (a.preview || a.create) await this.queueOverlayRender(() => this.clearCapacityMesh()).catch(() => {});
+      return { ...outcome, checks: failedChecks,
+        note: validationNote ?? "No compliant position found among the rectangles searched.",
+        fix: outcome.incomplete ? "Provide the missing data and run capacity again before saving."
+          : "Check the reported limits, constraints and available building zone." };
+    }
+    if (add && !save && modelUrn && outcome.validated && !outcome.inventoryNote && await this.rootUrn() === modelUrn) {
+      if (session.capacity?.revision !== modelUrn) session.capacity = { revision: modelUrn, plans: new Map() };
+      const { plans } = session.capacity;
+      if (plans.size >= 4) {
+        const oldest = plans.keys().next();
+        if (!oldest.done) plans.delete(oldest.value);
+      }
+      plans.set(key, plan);
+    }
+    if (!a.create && !a.preview) return { ...outcome, note: validationNote };
+    if (save) await this.queueOverlayRender(() => this.clearCapacityMesh());
+    const placement = await this.create({
+      preview: a.preview,
+      items: [{ type: "building", name: "Bebaubarkeit", polygon: block.ring,
+        floors: block.storeys, floorHeight, func: a.targetUse }],
+    }, save ? modelUrn : undefined);
+    if (save) return { ...outcome, placement, note: validationNote };
+    const note = await this.queueOverlayRender(async () => {
+      try {
+        const item = placement.items[0];
+        const z = item && "z" in item ? item.z : undefined;
+        const { position, normal } = prismTriangles(block.ring, typeof z === "number" ? z : 0, block.height_m);
+        const geometryData = { position, normal,
+          color: new Uint8Array(Array.from({ length: position.length / 3 }, () => [31, 104, 182, 170]).flat()) };
+        if (this.capacityMesh === undefined) this.capacityMesh = (await this.F.render.addMesh({ geometryData })).id;
+        else await this.F.render.updateMesh({ id: this.capacityMesh, geometryData });
+        return "Vorschau in Forma eingeblendet. Ausblenden mit forma_view action:clear_overlays.";
+      } catch {
+        return "Die Vorschau konnte im 3D-Fenster nicht angezeigt werden.\nfix: Öffnen Sie das Forma-MCP-Panel erneut und wiederholen Sie die Vorschau.";
+      }
+    });
+    return { ...outcome, placement, note: [validationNote, note].filter(Boolean).join(" ") || undefined };
+  }
+
+  private async planCapacity(rules: Rules, floorHeight: number, add: boolean, save: boolean, includeContext: boolean) {
+    const stock = add || save ? await this.siteInventory(rules, includeContext) : undefined;
+    const scope = stock ?? await this.siteBoundary(await this.getTree());
+    if (!scope.site)
+      throw new FormaError("Die Grundstücksgrenze fehlt.", "Zeichnen Sie in Forma eine Grundstücksgrenze.");
+    const plot = ringOf(scope.site, undefined, "Die Grundstücksgrenze");
+    const rows = stock?.storeys ?? [];
+    const existing = rows.flatMap((row) => validAbstandRing(row.ring) ? [{ ...row, ring: row.ring }] : []);
+    const inventory = stock?.inventory ?? [];
+    const excludedContext = stock?.excludedContext ?? [];
+    const stockArea = sumAreas(inventory.map((b) => b.footprint_m2));
+    if (!add && save && rows.length) {
+      return { kind: "refused", result: { rows: [], assumptions: [], existing: { footprint_m2: stockArea, inventory, excludedContext }, inventoryNote: stock?.inventoryNote,
+        summary: "Auf dem Grundstück stehen bereits Gebäude. Der Baukörper wurde nicht gespeichert.",
+        fix: 'Verwenden Sie mode:"add", um neben dem Bestand zu bauen, oder räumen Sie zuerst das Grundstück frei.' } } as const;
+    }
+    const parking = (add || (save && grz2LimitFor(rules) !== undefined)) && scope.sitePath && rules.ancillaryArea_m2 === undefined
+      ? (await this.readAreaMetrics([scope.sitePath]))?.parkingStatistics?.area : 0;
+    const ancillary = rules.ancillaryArea_m2 ?? (typeof parking === "number" && Number.isFinite(parking) ? parking : undefined);
+    const plotArea = area(plot);
+    const stockGfa = inventory.every((b) => b.totalFloorArea !== undefined)
+      ? sumAreas(inventory.map((b) => b.totalFloorArea?.m2 ?? 0)) : undefined;
+    const ratioInput = {
+      siteArea: plotArea, plotArea, parkingArea: ancillary,
+      plotFootprint: stock?.missingOutlines.length ? null : stockArea,
+      footprint: stockArea,
+      plotInventory: stock?.missingOutlines.length ? undefined : inventory,
+      plotStoreys: stock?.missingOutlines.length ? null : undefined,
+      gfa: stockGfa,
+    };
+    const checkActual = save || add;
+    const ratios = checkActual ? checkRules({ ...ratioInput, buildings: [], germanFigures: true }, {
+      maxGrz: rules.maxGrz, maxGrz2: rules.maxGrz2, maxGfz: rules.maxGfz, maxFar: rules.maxFar, maxCoverage: rules.maxCoverage,
+    }) : undefined;
+    const baselineRatios = add ? { grz: ratios?.summary.grz, grz2: ratios?.summary.grz2, gfz: ratios?.summary.gfz } : undefined;
+    const overages = ratios?.violations ?? [];
+    const atLimit = [["GRZ", ratios?.summary.grz, rules.maxGrz], ["GRZ II", ratios?.summary.grz2, grz2LimitFor(rules)],
+      ["GFZ", ratios?.summary.gfz, rules.maxGfz]].filter(([, actual, limit]) =>
+        typeof actual === "number" && typeof limit === "number" && (limit - actual) * plotArea <= 1e-7).map(([label]) => label);
+    const refusal = overages.length
+      ? `No headroom. The site already exceeds the limit: ${overages.map((v) => v.text).join("; ")}.`
+      : atLimit.length ? `No headroom. The site has used all allowance under: ${atLimit.join(", ")}.` : undefined;
+    if (refusal) {
+      return { kind: "refused", result: {
+        ...calculateCapacity({ plot, zones: [], rules, floorHeight, existing, inventory, excludedContext, inventoryNote: stock?.inventoryNote, ancillary, refusal }),
+        baselineRatios, validated: false, checks: ratios, fix: "Check the reported site ratio limits and inventory.",
+      } } as const;
+    }
+    const [allZones, roads] = await Promise.all([
+      rules.zoneRing ? [{ name: rules.zone ?? "Angegebenes Baufenster", ring: ringOf(rules.zoneRing, undefined, "Das Baufenster") }]
+        : rules.insideZone || rules.zone ? this.buildingZones(rules, plot) : [],
+      rules.abstand && rules.abstand.allowRoadHalf !== false ? this.abstandRoads() : undefined,
+    ]);
+    const requiredZone = rules.zone?.trim().toLowerCase();
+    const zones = allZones.filter(({ name }) => !requiredZone || name.toLowerCase() === requiredZone);
+    const statute = rules.abstand && resolveAbstand(rules.abstand);
+    const limit = capacitySearchLimit(plot, zones, rules, floorHeight, roads);
+    const capacityDepth = statute && typeof statute.factor === "number"
+      ? statutoryDepth(statute.state, limit * floorHeight, statute.factor, Math.max(statute.law.min_m, statute.reduced?.min_m ?? 0)) : 0;
+    const scene = stock && rules.abstand ? await this.abstandScene(rules.abstand, plot, stock.aliases,
+      new Set(rows.filter((b) => !b.context).map((b) => b.path)), Math.max(capacityDepth, rules.minSpacing ?? 0), stock.outlines) : undefined;
+    const neighbours = scene?.neighbours ?? [];
+    const names = new Map(rows.map((b) => [b.path, b.name]));
+    for (const b of [...(scene?.targets ?? []), ...neighbours]) b.name = names.get(b.path) ?? b.name;
+    const targets = scene?.targets ?? existing;
+    const abstandGeometry = rules.abstand && prepareAbstandGeometry(rules.abstand, [...neighbours, ...targets]);
+    const placementRules = { ...rules, insideZone: Boolean(rules.insideZone || rules.zoneRing || rules.zone) };
+    const missingOutlines = rows.filter((b) => !validAbstandRing(b.ring)).map((b) => b.name ?? b.path);
+    const checkPlacement = (candidate?: RuleBuilding, candidateArea = 0) => {
+      const abstandTargets = candidate ? [...targets, ...neighbours, candidate] : targets;
+      const candidateGfa = candidateArea * (candidate?.floors ?? 0);
+      const candidateFloorArea: FloorArea = { m2: candidateGfa, source: "measured" };
+      const candidateInventory = candidate ? [...inventory, {
+        path: candidate.path, name: candidate.name, floors: candidate.floors, footprint_m2: candidateArea,
+        totalFloorArea: candidateFloorArea, fullFloorArea: candidateFloorArea,
+      }] : inventory;
+      const report = checkRules({
+        site: plot, siteArea: plotArea, plotArea, zones, parkingArea: ancillary,
+        plotFootprint: ratioInput.plotFootprint === null ? null : stockArea + candidateArea,
+        footprint: stockArea + candidateArea,
+        plotInventory: ratioInput.plotInventory && candidateInventory,
+        plotStoreys: ratioInput.plotStoreys,
+        gfa: stockGfa === undefined ? undefined : stockGfa + candidateGfa,
+        buildings: candidate ? [...existing, candidate] : existing,
+        storeys: candidate ? [candidate] : rows,
+        abstandTargets: candidate && statute && statute.bayern ? [...targets, candidate] : abstandTargets,
+        abstandNeighbours: neighbours,
+        abstandChangedPath: candidate?.path,
+        abstandRoads: roads,
+        abstandGeometry,
+      }, candidate ? { ...placementRules, nonFullTopFloors: 0 }
+        : targets.length ? placementRules : { ...placementRules, abstand: undefined });
+      if (missingOutlines.length) report.skipped.push(`Building footprints unavailable for: ${missingOutlines.join(", ")}`);
+      const missingHeights = (candidate ? [candidate] : existing).filter((b) => rules.maxHeight !== undefined && !Number.isFinite(b.height));
+      if (missingHeights.length) report.skipped.push(`Building height unavailable for: ${missingHeights.map((b) => b.name ?? b.path).join(", ")}`);
+      const missingFloors = (candidate ? [candidate] : rows).filter((b) => rules.maxFloors !== undefined && b.floors === undefined);
+      if (missingFloors.length) report.skipped.push(`Floor count unavailable for: ${missingFloors.map((b) => b.name ?? b.path).join(", ")}`);
+      if (rules.maxFar !== undefined && stockGfa === undefined)
+        report.skipped.push(`FAR (floor area unavailable for: ${inventory.filter((b) => !b.totalFloorArea).map((b) => b.name ?? b.path).join(", ")})`);
+      if (candidate) {
+        for (const b of existing.filter((b) => ringsOverlap(b.ring, candidate.ring))) {
+          report.violations.push({ id: JSON.stringify(["overlap", candidate.path, b.path]), rule: "overlap", path: candidate.path,
+            other: b.path, actual: 1, limit: 0, text: `The new block overlaps ${b.name ?? b.path}.` });
+        }
+      }
+      return report;
+    };
+    const checkBlock = (ring: P2[], row: CapacityRow) => {
+      const footprint = area(ring);
+      return checkPlacement({
+        path: "capacity-preview", name: "Neuer Baukörper", ring, height: row.height_m, floors: row.storeys,
+      }, footprint);
+    };
+    const baseline = checkActual ? checkPlacement() : undefined;
+    let failedChecks: RuleReport | undefined;
+    const baselineNotes = baseline?.skipped ?? [];
+    let missingData = baselineNotes.filter((s) => !/^(Full storeys|Floor count unavailable|Building height unavailable)/.test(s));
+    const result = calculateCapacity({
+      plot, zones, rules, floorHeight, existing, inventory, excludedContext, inventoryNote: stock?.inventoryNote, ancillary, roads,
+      neighbours: neighbours.flatMap((b) => b.ring ? [{ ...b, ring: b.ring }] : []),
+      alignToEdges: add,
+      accepts: checkActual ? (ring, row) => {
+        const report = checkBlock(ring, row);
+        const violations = addedOrWorsenedFindings(baseline?.violations ?? [], report.violations);
+        if (violations.length) {
+          failedChecks ??= { ...report, ok: false, violations };
+          return false;
+        }
+        missingData = report.skipped;
+        return true;
+      } : undefined,
+    }, limit);
+    result.assumptions.push(add
+      ? "Site ratios use the inventory areas inside the plot. Floor-area estimates use 3 m per storey when the storey count is unavailable."
+      : "hypothetical: assumes existing buildings removed");
+    const outcome = {
+      ...result,
+      existingProblems: baseline?.violations.filter((v) => v.path) ?? [],
+      baselineRatios, baselineNotes,
+      validated: checkActual && !!result.block && !missingData.length,
+      incomplete: missingData.length > 0 || undefined,
+      missingData,
+    };
+    return { kind: "calculated", outcome, failedChecks } as const;
+  }
+
   /** report {rules?} — per-building table + totals (+ rule check) for a saved design report. */
   async report(a: AnyObj) {
-    const [sb, m, st] = await Promise.all([this.siteBuildings(a), this.metrics({}), this.status()]);
-    const out: AnyObj = { project: (st as AnyObj)?.project?.name, design_option: (st as AnyObj)?.model?.name, totals: m, buildings: sb.gfa };
-    if (a.rules && Object.keys(a.rules).length) {
-      const num = (v: unknown) => (typeof v === "number" ? v : undefined);
-      out.rules = a.rules;
-      out.check = checkRules({ site: sb.site, siteArea: num(m.site_area_m2), gfa: num(m.gfa_m2), footprint: num(m.footprint_m2), buildings: sb.buildings }, a.rules);
+    const rules: Rules = a.rules ?? {};
+    const germanFigures = a.germanFigures !== false || a.includeContext === true || hasGermanRules(rules);
+    const [sb, m, st] = await Promise.all([this.siteBuildings(a, rules, false, germanFigures), this.metrics({}).catch(() => undefined), this.status()]);
+    const out = { project: (st as AnyObj)?.project?.name, design_option: (st as AnyObj)?.model?.name, totals: m, buildings: sb.gfa };
+    if (!Object.keys(rules).length && !germanFigures) return out;
+    const check = await this.planningCheck(a, sb, m, rules, false, germanFigures);
+    const note = a.show && check.abstand ? await this.showAbstand(check.abstand) : undefined;
+    const buildings = new Map(sb.gfa.map((row) => [row.path, { ...row, ratio_status: check.plotInventory ? "Not counted" : "" }]));
+    if (check.plotInventory) {
+      const scoped = !!(a.paths || a.from || a.category);
+      for (const row of [...check.plotInventory, ...check.excludedContext ?? []]) {
+        const current = buildings.get(row.path);
+        if (!current && scoped) continue;
+        buildings.set(row.path, {
+          path: row.path, name: row.name ?? "", floors: row.floors ?? "", use: "", uses: "", height_m: "",
+          ...current, footprint_m2: row.footprint_m2, gfa_m2: row.totalFloorArea?.m2 ?? "",
+          ratio_status: "reason" in row ? `Not counted (${row.reason})` : "Counted",
+        });
+      }
     }
-    return out;
+    return { ...out, buildings: [...buildings.values()], rules, check, note };
   }
 
   // ---------- metrics ----------
@@ -527,7 +1087,7 @@ export class Ops {
         const ring = cleanRing(fp.coordinates as P2[]);
         const nodes = await this.getTree();
         const inside = (await this.F.geometry.getPathsInsidePolygons({ polygons: [[...ring, ring[0]]] }).catch(() => [] as string[]))
-          .filter((p) => nodes.get(p)?.cat === "building");
+          .filter((p) => nodes.get(p)?.cat === "building" && !nodes.get(p)?.context);
         if (inside.length) inSite = await this.F.areaMetrics.calculate({ paths: inside }).catch(() => undefined);
         else noneInSite = true;
       }
@@ -566,7 +1126,7 @@ export class Ops {
   }
 
   // ---------- create ----------
-  async create(a: AnyObj) {
+  async create(a: AnyObj, expectedRoot?: string) {
     const items: AnyObj[] = a.items ?? [];
     if (!items.length) throw new FormaError("items is empty", "Pass items:[{type:'building', polygon:[[x,y],...], floors:6}].");
     if (items.length > 200) throw new FormaError("max 200 items per call", "Split into several calls.");
@@ -588,7 +1148,7 @@ export class Ops {
 
     // 2) add all to the proposal in one batch
     const ops: UpdateOp[] = plans.map((p, i) => ({ type: "add", urn: urns[i], name: p.name, transform: p.transform, parentPath: items[i].parent }));
-    const { results, nodes, verified, saved, fix } = await this.applyBatch(ops, a.wait !== false);
+    const { results, nodes, verified, saved, fix } = await this.applyBatch(ops, a.wait !== false, expectedRoot);
     const paths = results.flatMap((r) => r?.path ? [r.path] : []);
     if (verified) await this.pushUndo(`create ${paths.length}`, paths.map((path, i) => ({ type: "remove", path, urn: urns[i] })));
     const summaries = await pool(plans, 8, async (p, i) => {
@@ -711,6 +1271,81 @@ export class Ops {
   }
 
   // ---------- edit ----------
+  private async footprintReplacement(n: TreeNode, nodes: Map<string, TreeNode>, outline: P2[], dimensions: FootprintDimensions) {
+    const fix = "Use Forma's building editor to keep the existing height and uses.";
+    let world = n.transform ?? IDENTITY;
+    for (let parent = n.parent; parent; parent = nodes.get(parent)?.parent)
+      world = mul(nodes.get(parent)?.transform ?? IDENTITY, world);
+    const [xx, xy, xz, , yx, yy, yz, , zx, zy, zz, , tx, ty, tz] = world;
+    const det = xx * yy - xy * yx;
+    if (Math.abs(det) < 1e-8 || zz <= 0 || [xz, yz, zx, zy].some((v) => Math.abs(v) > 1e-8))
+      throw new FormaError(`'${n.path}' has a tilted or unsupported building transform`, fix);
+    const ring = cleanRing(outline.map(([x, y]) => [(yy * (x - tx) - yx * (y - ty)) / det, (xx * (y - ty) - xy * (x - tx)) / det]));
+    const [box, element, graph, gfa] = await Promise.all([
+      this.F.geometry.getTriangles({ path: n.path }).then(bboxOfTriangles).catch(() => undefined),
+      this.F.elements.get({ urn: n.urn as any }).then((r) => r.element),
+      this.F.elements.representations.graphBuilding?.({ urn: n.urn }).catch(() => undefined),
+      this.F.elements.representations.grossFloorAreaPolygons({ urn: n.urn }).catch(() => undefined),
+    ]);
+    if (!box || Math.abs(box.min[2] - tz) > 0.05)
+      throw new FormaError(`'${n.path}' has no verifiable base elevation for a footprint replacement`, fix);
+    const height = (box.max[2] - box.min[2]) / zz;
+    const internal = (element.representations as AnyObj | undefined)?.__INTERNAL__?.data;
+    const uses = (values: (string | undefined)[]) => {
+      const ids = new Set(values.filter(Boolean));
+      if (ids.size > 1) throw new FormaError(`'${n.path}' has multiple uses on one floor`, fix);
+      return [...ids][0] ?? n.func;
+    };
+    let levels: { height: number; functionId?: string }[];
+    if (Array.isArray(internal?.floors) && internal.floors.length) {
+      const stack = stackFromInternal(internal, internal.floors.length);
+      levels = stack.floors.map((floor) => ({ height: floor.height,
+        functionId: uses(stack.plans.find((plan) => plan.id === floor.planId)?.units.map((unit) => unit.functionId) ?? []) }));
+    } else if (graph?.data.levels.length) {
+      const bySpace = new Map(graph.data.units.flatMap((unit) =>
+        unit.spaceIds.map((id) => [id, unit.properties.function] as const)));
+      levels = graph.data.levels.map((level) => ({ height: level.height, functionId: uses(level.spaces.map((space) => bySpace.get(space.id))) }));
+    } else {
+      const elevations = [...new Set(gfa?.data.map((part) => part.elevation))].sort((a, b) => a - b);
+      if (!elevations.length || Math.abs(elevations[0]) > 0.05)
+        throw new FormaError(`'${n.path}' has no readable floor stack`, fix);
+      const metrics = await this.F.areaMetrics.calculate({ paths: [n.path] });
+      const functionId = uses(metrics.builtInMetrics.grossFloorArea.functionBreakdown.flatMap((f) =>
+        typeof f.value === "number" && f.value > 0 && f.functionId !== "unspecified" ? [f.functionId] : []));
+      levels = elevations.map((z, i) => ({ height: (elevations[i + 1] ?? height) - z, functionId }));
+    }
+    if (levels.some((level) => !Number.isFinite(level.height) || level.height <= 0)
+        || Math.abs(sumAreas(levels.map((level) => level.height)) - height) > 0.05)
+      throw new FormaError(`'${n.path}' has an inconsistent floor stack height`, fix);
+    const count = dimensions.floors ?? levels.length;
+    const uniformHeight = dimensions.height === undefined ? dimensions.floorHeight : dimensions.height / count;
+    if (!Number.isInteger(count) || count < 1 || count > 200
+        || (uniformHeight !== undefined && !(uniformHeight > 0 && uniformHeight < 50))
+        || (dimensions.floorHeight !== undefined && dimensions.height !== undefined
+            && Math.abs(dimensions.floorHeight * count - dimensions.height) > 1e-6)) {
+      throw new FormaError("The floor count and heights do not match.", "Choose 1?200 floors and enter either the height of each floor (floorHeight) or the total height (height).");
+    }
+    const last = levels[levels.length - 1];
+    levels = Array.from({ length: count }, (_, i) => {
+      const level = levels[i] ?? last;
+      return { height: uniformHeight === undefined ? level.height : uniformHeight / zz, functionId: level.functionId };
+    });
+    const plans: NonNullable<FloorStackRequest["plans"]> = [];
+    const byFunction = new Map<string, string>();
+    const floors: FloorStackRequest["floors"] = levels.map(({ height, functionId }) => {
+      if (!functionId) return { polygon: ring, height };
+      let planId = byFunction.get(functionId);
+      if (!planId) {
+        planId = `p${plans.length}`;
+        byFunction.set(functionId, planId);
+        const vertices = ring.map(([x, y], i) => ({ id: `${planId}v${i}`, x, y }));
+        plans.push({ id: planId, vertices, units: [{ polygon: vertices.map((v) => v.id), holes: [], functionId }] });
+      }
+      return { planId, height };
+    });
+    return { request: { floors, ...(plans.length ? { plans } : {}) }, height_m: sumAreas(levels.map((level) => level.height)) * zz };
+  }
+
   async edit(a: AnyObj) {
     const list: AnyObj[] = a.ops ?? [];
     if (!list.length) throw new FormaError("ops is empty", "Pass ops:[{op:'move', paths:[...], dx:5}].");
@@ -724,7 +1359,7 @@ export class Ops {
     const node = (p: string) => {
       const n = nodes.get(p);
       if (!n || p === "root") throw new FormaError(`element '${p}' not found`, "Paths change after every edit; re-run forma_find or use from:'last'.");
-      if (touched.has(p)) throw new FormaError(`'${p}' used by two ops in one call`, "Combine them (move takes dx,dy,dz and rotate together) or use two calls.");
+      if (touched.has(p)) throw new FormaError(`'${p}' used by two ops in one call`, "Combine floor and outline changes in one footprint edit. Move accepts dx, dy, dz and rotate together.");
       touched.add(p);
       return n;
     };
@@ -793,6 +1428,25 @@ export class Ops {
           notes.push({ k, op: "props", n: paths.length });
           break;
         }
+        case "footprint": {
+          const outline = ringOf(o.polygon, undefined, `ops[${k}]`);
+          for (const p of paths) {
+            const n = node(p);
+            if (n.cat !== "building") throw new FormaError(`'${p}' is not a building`, "Pick buildings with forma_find category:'building'.");
+            if (/:building-design:/.test(n.urn) || /:building-design:/.test(nodes.get(n.parent ?? "")?.urn ?? ""))
+              throw new FormaError(`'${p}' was made in Forma's Building Design tool`, "Open that building in Forma's Building Design editor to replace its footprint.");
+            const before = await this.footprint(p);
+            const { request, height_m } = await this.footprintReplacement(n, nodes, outline, o);
+            notes.push({ k, op: "footprint", path: p, from_m2: before?.type === "Polygon" ? r1(area(before.coordinates)) : undefined,
+              to_m2: r1(area(outline)), floors: request.floors.length, height_m: r2(height_m) });
+            if (a.preview) continue;
+            const { urn } = await this.F.elements.floorStack.createFromFloors(request);
+            updates.push({ type: "replace", path: p, urn });
+            inverse.unshift({ type: "replace", path: p, urn: n.urn, cur: urn });
+            if (o.floors !== undefined || o.height !== undefined || o.floorHeight !== undefined) floorChecks.push({ p, expect: height_m });
+          }
+          break;
+        }
         case "floors": {
           // Change the number of floors: rebuild the building with the same outlines, heights and uses.
           if (o.floors === undefined && o.add === undefined) throw new FormaError(`ops[${k}] floors needs floors (new total) or add (e.g. -3)`, "Example: {op:'floors', from:'selection', add:-3}");
@@ -841,7 +1495,7 @@ export class Ops {
           break;
         }
         default:
-          throw new FormaError(`ops[${k}] unknown op '${o.op}'`, "op: move | copy | remove | rename | props | floors");
+          throw new FormaError(`ops[${k}] unknown op '${o.op}'`, "op: move | copy | remove | rename | props | floors | footprint");
       }
     }
     if (a.preview) return { preview: true, ops: notes, sdkOps: updates.length };
@@ -935,6 +1589,50 @@ export class Ops {
   }
 
   // ---------- view ----------
+  private queueOverlayRender<T>(action: () => Promise<T>): Promise<T> {
+    const next = this.overlayRender.then(action);
+    this.overlayRender = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private async clearAbstandOverlay() {
+    if (this.abstandOverlay === undefined) return;
+    await this.F.render.geojson.remove({ id: this.abstandOverlay });
+    this.abstandOverlay = undefined;
+  }
+
+  private async clearCapacityMesh() {
+    if (this.capacityMesh === undefined) return;
+    await this.F.render.remove({ id: this.capacityMesh });
+    this.capacityMesh = undefined;
+  }
+
+  private showAbstand(result: AbstandResult): Promise<string> {
+    return this.queueOverlayRender(async () => {
+      try {
+        if (!result.strips.length) { await this.clearAbstandOverlay(); return ""; }
+        const geojson: RenderGeojson = {
+          type: "FeatureCollection",
+          features: result.strips.map(({ ring, bad }) => {
+            const outline = cleanRing(ring);
+            const color = bad ? "#d93025" : "#2e9e5b";
+            return {
+              type: "Feature",
+              properties: { fill: color, stroke: color, "fill-opacity": 0.65 },
+              geometry: { type: "Polygon", coordinates: [[...outline, outline[0]]] },
+            };
+          }),
+        };
+        if (this.abstandOverlay === undefined) this.abstandOverlay = (await this.F.render.geojson.add({ geojson })).id;
+        else await this.F.render.geojson.update({ id: this.abstandOverlay, geojson });
+        return "Abstandsflächen eingeblendet. Die Prüfergebnisse unten zeigen, wo Platz fehlt. Ausblenden mit forma_view action:clear_overlays.";
+      } catch {
+        await this.clearAbstandOverlay().catch(() => {});
+        return "Abstandsflächen konnten in Forma nicht angezeigt werden.\nfix: Öffnen Sie das Forma-MCP-Panel erneut und wiederholen Sie die Prüfung mit show: true.";
+      }
+    });
+  }
+
   async view(a: AnyObj) {
     const F = this.F;
     switch (a.action) {
@@ -964,7 +1662,7 @@ export class Ops {
       case "color_by":
         return this.colorBy(a);
       case "clear_colors":
-        await F.render.elementColors.clearAll();
+        await Promise.all([F.render.elementColors.clearAll(), this.queueOverlayRender(() => this.clearAbstandOverlay())]);
         return { ok: true };
       case "hide":
       case "show": {
@@ -997,7 +1695,10 @@ export class Ops {
         return { id, features: feats.length };
       }
       case "clear_overlays":
-        await Promise.all([F.render.geojson.cleanup(), F.render.cleanup()]);
+        await this.queueOverlayRender(() => Promise.all([
+          F.render.geojson.cleanup().then(() => { this.abstandOverlay = undefined; }),
+          F.render.cleanup().then(() => { this.capacityMesh = undefined; }),
+        ]));
         this.overlays = [];
         return { ok: true };
       default:
@@ -1326,6 +2027,7 @@ export class Ops {
 
 // ---------- helpers ----------
 const CAT_ALIASES: Record<string, string> = { buildings: "building", site: "site_limit", sitelimit: "site_limit", trees: "vegetation", tree: "vegetation", roads: "road" };
+const ZONE_CATEGORIES = new Set(["zone", "site_zone", "building_zone", "limit", "constraint", "baugrenze", "baulinie", "baufenster"]);
 const normCat = (c: string) => CAT_ALIASES[c.toLowerCase()] ?? c;
 
 /** Readable, unique building names for lists and reports. Forma names every new building
@@ -1340,12 +2042,13 @@ export function labelBuildings(
   }
 }
 
-function buildingAliases(rows: { path: string; name?: string }[]) {
+function buildingAliases(rows: { path: string; name?: string }[], offset = 0) {
   const count = new Map<string, number>();
   for (const r of rows) if (r.name) count.set(r.name, (count.get(r.name) ?? 0) + 1);
   const generic = rows.filter((r) => !r.name || count.get(r.name)! > 1).sort((a, b) => a.path.localeCompare(b.path));
   return new Map(generic.map((r, i) => {
-    const letter = i < 26 ? String.fromCharCode(65 + i) : String(i + 1);
+    const index = i + offset;
+    const letter = index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
     return [r.path, `Building ${letter}`];
   }));
 }
@@ -1380,6 +2083,40 @@ function multiRingArea(rings: [number, number][][]): number {
   if (!rings?.length) return 0;
   return rings.reduce((s, r, i) => s + (i === 0 ? 1 : -1) * area(r as P2[]), 0);
 }
+
+function clippedArea(ring: P2[], plot: P2[]) {
+  const location = ringLocation(ring, plot);
+  if (!location.outside) return area(ring);
+  if (!location.inside) {
+    const reverse = ringLocation(plot, ring);
+    if (!reverse.outside) return area(plot);
+    if (!reverse.inside) return 0;
+  }
+  return buildableEnvelope(plot, [{ ring }], []).area;
+}
+
+type FloorPolygon = { elevation: number; grossFloorPolygon: P2[][] };
+function transformFloorPolygon({ elevation, grossFloorPolygon }: FloorPolygon, t: M4): P2[][] {
+  return grossFloorPolygon.map((ring) => ring.map(([x, y]): P2 =>
+    [t[0] * x + t[4] * y + t[8] * elevation + t[12], t[1] * x + t[5] * y + t[9] * elevation + t[13]]));
+}
+
+function floorLevels(data: FloorPolygon[], plot?: P2[], world = IDENTITY) {
+  const levels = new Map<number, number>();
+  for (const part of data) {
+    const { elevation, grossFloorPolygon } = part;
+    const squareMetres = multiRingArea(grossFloorPolygon);
+    if (!Number.isFinite(elevation) || !Number.isFinite(squareMetres) || squareMetres <= 0) return undefined;
+    const counted = plot ? transformFloorPolygon(part, world).reduce((sum, ring, i) =>
+      sum + (i === 0 ? 1 : -1) * clippedArea(cleanRing(ring), plot), 0) : squareMetres;
+    const level = r2(elevation);
+    levels.set(level, (levels.get(level) ?? 0) + Math.max(0, counted));
+  }
+  return levels;
+}
+
+const sumAreas = (areas: Iterable<number>) => [...areas].reduce((sum, value) => sum + value, 0);
+const ascendingAreas = (levels: Map<number, number>) => [...levels].sort(([a], [b]) => a - b).map(([, value]) => value);
 
 // urn:adsk-forma-elements:{system}:{authcontext}:{id}:{revision}
 function propId(p: AnyObj): string | undefined {

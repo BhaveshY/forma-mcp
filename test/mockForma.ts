@@ -1,8 +1,10 @@
 // In-memory stand-in for the Forma embedded-view SDK, covering the calls Ops makes.
+import { area } from "../src/shared/geom.js";
+
 type Child = { key: string; urn: string; name?: string; transform?: number[] };
 type El = { urn: string; properties: Record<string, any>; children?: Child[] };
 
-export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" } = {}) {
+export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm"; nativeFloors?: boolean; zones?: { name: string; ring: [number, number][] }[]; roads?: { coordinates: [number, number][]; width?: number; polygon?: boolean }[] } = {}) {
   let rev = 1;
   let keySeq = 0;
   const els = new Map<string, El>();
@@ -29,13 +31,75 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
   const b1 = addEl("building", "Block A", [[0, 0], [20, 0], [20, 10], [0, 10]], 21, { functionId: "res" });
   const b2 = addEl("building", "Block B", [[30, 0], [40, 0], [40, 10], [30, 10]], 9);
   const site = addEl("site_limit", "Site", [[-10, -10], [60, -10], [60, 40], [-10, 40]], 0);
+  for (const { name, ring } of opts.zones ?? []) addEl("zone", name, ring, 0);
 
-  const byPath = (p: string) => children.find((c) => `root/${c.key}` === p);
+  for (const { coordinates, width, polygon } of opts.roads ?? [])
+    addEl("road", "Road", coordinates, 0, { width, line: !polygon });
+
+  const nativeLevels = new Map<string, { elevation: number; grossFloorPolygon: [number, number][][] }[]>();
+  if (opts.nativeFloors) for (const [path, floors] of [[b1, 7], [b2, 3]] as const) {
+    const parent = children.find((c) => `root/${c.key}` === path)!;
+    const [a, b, c, d] = footprints.get(parent.urn)!;
+    const midBottom: [number, number] = [(a[0] + b[0]) / 2, a[1]];
+    const midTop: [number, number] = [(c[0] + d[0]) / 2, d[1]];
+    els.get(parent.urn)!.children = Array.from({ length: floors }, (_, i) => {
+      const urn = mkUrn("floor");
+      els.set(urn, { urn, properties: { category: "floor" } });
+      const parts = [[a, midBottom, midTop, d], [midBottom, b, c, midTop]];
+      nativeLevels.set(urn, (i === floors - 1 ? parts.slice(0, 1) : parts)
+        .map((ring) => ({ elevation: path === b1 ? i * 3 : 0, grossFloorPolygon: [ring] })));
+      return { urn, key: `k${keySeq}`,
+        transform: path === b2 ? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, i * 3, 1] : undefined };
+    });
+  }
+
+  const addBuilding = (name: string, ring: [number, number][], height: number, opts: { context?: boolean; grouped?: boolean; levels?: [number, number][][] } = {}) => {
+    let base = children.find((c) => els.get(c.urn)?.properties.category === "base");
+    if (opts.context && !base) {
+      addEl("base", "Base");
+      base = children.at(-1);
+    }
+    if (opts.grouped) {
+      addEl("group", "Group");
+      base = children.at(-1);
+      els.get(base!.urn)!.properties = {};
+    }
+    addEl("building", name, ring, height);
+    const building = children.at(-1)!;
+    if (base && (opts.context || opts.grouped)) {
+      children.pop();
+      const layer = els.get(base.urn)!;
+      (layer.children ??= []).push(building);
+    }
+    if (opts.levels) nativeLevels.set(building.urn, opts.levels.map((level, i) => ({
+      elevation: i * 3, grossFloorPolygon: [level],
+    })));
+    return `root/${base && (opts.context || opts.grouped) ? `${base.key}/` : ""}${building.key}`;
+  };
+  const byPath = (p: string) => {
+    let parts = children;
+    let child: Child | undefined;
+    for (const key of p.split("/").slice(1)) {
+      child = parts.find((c) => c.key === key);
+      if (!child) return undefined;
+      parts = els.get(child.urn)?.children ?? [];
+    }
+    return child;
+  };
   const box = (c: Child) => {
     const b = boxes.get(c.urn);
     if (!b) return undefined;
     const t = c.transform ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
     return [b[0] + t[12], b[1] + t[13], b[2] + t[14], b[3] + t[12], b[4] + t[13], b[5] + t[14]];
+  };
+  const grossFloorAreaPolygons = async ({ urn }: { urn: string }) => {
+    if (nativeLevels.has(urn)) return { data: nativeLevels.get(urn) };
+    if (els.get(urn)?.children?.length) return undefined;
+    const fp = footprints.get(urn);
+    const b = boxes.get(urn);
+    if (!fp || !b || els.get(urn)?.properties.category !== "building") return undefined;
+    const floors = Math.max(1, Math.round((b[5] - b[2]) / 3));
+    return { data: Array.from({ length: floors }, (_, i) => ({ grossFloorPolygon: [fp], elevation: i * 3 })) };
   };
 
   const batch = async ({ operations }: { operations: any[] }) => {
@@ -92,7 +156,14 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
         if (urn === rootUrn() || urn.startsWith("urn:adsk-forma-elements:proposal:")) {
           const root = { urn: rootUrn(), properties: { category: "proposal", name: "Option A" }, children: children.map((c) => ({ ...c })) };
           all[root.urn] = root;
-          if (recursive) for (const c of children) all[c.urn] = els.get(c.urn);
+          const collect = (children: Child[]) => {
+            for (const c of children) {
+              const element = els.get(c.urn);
+              all[c.urn] = element;
+              if (element?.children) collect(element.children);
+            }
+          };
+          if (recursive) collect(children);
           return { element: root, elements: all };
         }
         const e = els.get(urn);
@@ -114,6 +185,8 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
           const urn = mkUrn("floorstack");
           els.set(urn, { urn, properties: { category: "building" } });
           const pts: number[][] = r.plans?.length ? r.plans.flatMap((p: any) => p.vertices.map((v: any) => [v.x, v.y])) : r.floors[0].polygon;
+          const firstPlan = r.plans?.find((p: any) => p.id === r.floors[0].planId);
+          footprints.set(urn, r.floors[0].polygon ?? firstPlan?.vertices.map((v: any) => [v.x, v.y]));
           const h = r.floors.reduce((t: number, f: any) => t + f.height, 0);
           const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]);
           boxes.set(urn, [Math.min(...xs), Math.min(...ys), 0, Math.max(...xs), Math.max(...ys), h]);
@@ -135,15 +208,7 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
           };
         },
       },
-      representations: {
-        grossFloorAreaPolygons: async ({ urn }: any) => {
-          const fp = footprints.get(urn);
-          const b = boxes.get(urn);
-          if (!fp || !b || els.get(urn)?.properties.category !== "building") return undefined;
-          const floors = Math.max(1, Math.round((b[5] - b[2]) / 3));
-          return { data: Array.from({ length: floors }, (_, i) => ({ grossFloorPolygon: [fp], elevation: i * 3 })) };
-        },
-      },
+      representations: { grossFloorAreaPolygons },
     },
     integrateElements: {
       createElementHierarchy: async ({ data }: any) => {
@@ -157,7 +222,7 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
       getFootprint: async ({ path }: any) => {
         const c = byPath(path);
         const fp = c && footprints.get(c.urn);
-        return fp ? { type: "Polygon", coordinates: fp } : undefined;
+        return fp ? { type: c && els.get(c.urn)?.properties.line ? "LineString" : "Polygon", coordinates: fp } : undefined;
       },
       getTriangles: async ({ path }: any) => {
         const c = byPath(path);
@@ -187,16 +252,29 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
       applyPads: async () => {},
     },
     areaMetrics: {
-      calculate: async () => ({
+      calculate: async ({ paths }: { paths?: string[] } = {}) => {
+        const child = paths?.length === 1 ? byPath(paths[0]) : undefined;
+        const building = child && els.get(child.urn)?.properties.category === "building" ? child : undefined;
+        let gfa = 1400, coverage = 0.11;
+        if (building) {
+          const floors = els.get(building.urn)?.children?.filter((c) => els.get(c.urn)?.properties.category === "floor");
+          const parts = await Promise.all((floors ?? [building]).map(({ urn }) => grossFloorAreaPolygons({ urn })));
+          const levels = parts.flatMap((rep) => rep?.data ?? []);
+          gfa = levels.reduce((sum, level) => sum + level.grossFloorPolygon.reduce((subtotal, ring) => subtotal + area(ring), 0), 0);
+          const ring = footprints.get(building.urn);
+          coverage = levels.length && ring ? area(ring) : 0;
+        }
+        return {
         customMetrics: [],
         builtInMetrics: {
-          grossFloorArea: { id: "gfa", name: "GFA", functionBreakdown: [{ functionId: "res", functionName: "Residential", functionColor: "", value: 1400 }, { functionId: "off", functionName: "Office", functionColor: "", value: "UNABLE_TO_CALCULATE" }] },
-          buildingCoverage: { id: "c", name: "cov", value: 0.11 },
+          grossFloorArea: { id: "gfa", name: "GFA", functionBreakdown: building && !gfa ? [] : [{ functionId: "res", functionName: "Residential", functionColor: "", value: gfa }, { functionId: "off", functionName: "Office", functionColor: "", value: "UNABLE_TO_CALCULATE" }] },
+          buildingCoverage: { id: "c", name: "cov", value: coverage },
           siteArea: { id: "s", name: "site", value: 3500 },
         },
         unitStatistics: { count: { id: "u", name: "units", value: 12 } },
         parkingStatistics: { spots: 4, area: 50 },
-      }),
+        };
+      },
     },
     camera: {
       capture: async ({ width, height }: any) => ({ width, height, toDataURL: (m: string) => `data:${m};base64,QUJD` }),
@@ -208,8 +286,16 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
       elementColors: { set: async (a: any) => { calls.push({ fn: "colors", arg: a }); return { id: "c" }; }, clearAll: async () => ({ id: "c" }) },
       setElementsVisibility: async (a: any) => calls.push({ fn: "vis", arg: a }),
       unhideAllElements: async () => {},
-      geojson: { add: async () => ({ id: "g1" }), cleanup: async () => {} },
-      cleanup: async () => {},
+      addMesh: async (arg: any) => { calls.push({ fn: "render.addMesh", arg }); return { id: "abstand-mesh" }; },
+      updateMesh: async (arg: any) => { calls.push({ fn: "render.updateMesh", arg }); },
+      remove: async (arg: any) => { calls.push({ fn: "render.remove", arg }); },
+      geojson: {
+        add: async (arg: any) => { calls.push({ fn: "geojson.add", arg }); return { id: "g1" }; },
+        update: async (arg: any) => { calls.push({ fn: "geojson.update", arg }); },
+        remove: async (arg: any) => { calls.push({ fn: "geojson.remove", arg }); },
+        cleanup: async () => { calls.push({ fn: "geojson.cleanup", arg: {} }); },
+      },
+      cleanup: async () => { calls.push({ fn: "render.cleanup", arg: {} }); },
     },
     sun: { getDate: async () => new Date("2026-06-21T12:00:00Z"), setDate: async () => {} },
     analysis: {
@@ -220,5 +306,5 @@ export function mockForma(opts: { canEdit?: boolean; kind?: "proposal" | "udm" }
     },
     predictiveAnalysis: { getWindParameters: async () => ({ data: [{ direction: 0, probability: 0.2, weibull_parameters: { scale: 1, shape: 1 } }], height: 10, roughness: 0.3 }) },
   };
-  return { F, calls, paths: { b1, b2, site }, children, els, footprints, boxes };
+  return { F, calls, paths: { b1, b2, site }, children, els, footprints, boxes, addBuilding };
 }

@@ -5,5 +5,11 @@ const prompt = process.argv[2] ?? "Check the design: max height 25 m, FAR 2.5, a
 const r = new ExecRunner({ serverPath: process.env.FORMA_MCP_SERVER_PATH ?? join(process.env.LOCALAPPDATA!, "forma-mcp", "server.js") });
 console.log(JSON.stringify(await r.check()));
 const t0 = Date.now();
-const h = r.start({ prompt: wrapPrompt(prompt), onEvent: (e) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${e.kind}: ${(e as any).text ?? ""}`) } as any);
+const h = r.start({
+  prompt: wrapPrompt(prompt),
+  onEvent: (e) => {
+    console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${e.kind}: ${e.text}`);
+    if (e.kind === "error") process.exitCode = 1;
+  },
+});
 await h.done;

@@ -4,6 +4,10 @@ import type { LinkManager } from "./link.js";
 import { FormaError } from "../shared/protocol.js";
 import { kv, render, table } from "./format.js";
 import { saveReport } from "./report.js";
+import { ABSTAND_DATA } from "../shared/abstand-data.js";
+import type { AbstandResult } from "../shared/abstand.js";
+import type { CapacityRow } from "../shared/capacity.js";
+import type { ExcludedPlotBuilding, PlotBuilding } from "../shared/rules.js";
 
 type AnyObj = Record<string, any>;
 type Content = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
@@ -92,7 +96,7 @@ const item = strictFields({
 const editOp = strictFields({
   ...target, path: str, op: str, dx: num, dy: num, dz: num, rotate: num, about: pt.optional(),
   count: z.number().int().optional(), name: str, patch: z.record(z.any()).optional(),
-  floors: z.number().int().optional(), add: z.number().int().optional(),
+  floors: z.number().int().optional(), add: z.number().int().optional(), polygon: poly.optional(), floorHeight: num, height: num,
 });
 const fit = z.union([z.boolean(), z.string(), strictFields({ ...target, path: str, view: str, zoom: num })]);
 const pad = strictFields({ id: str, polygon: poly, z: num, elevation: num, slope: num });
@@ -171,6 +175,16 @@ export function registerTools(server: McpServer, link: LinkManager) {
     if (r.pathsVerified === false) h.last = [];
     else if (r.pathsVerified && r.paths?.length) h.last = r.paths;
   };
+  const renderPlacement = (r: AnyObj) => {
+    setLast(r);
+    const rows = (r.items as AnyObj[]).map((x) => [x.path ?? "", x.type, x.name ?? "", x.floors ?? "", x.height ?? "", x.footprint ?? x.area ?? "", x.gfa ?? "", x.z ?? ""]);
+    const handle = r.pathsVerified && r.paths?.length ? " → handle 'last'" : "";
+    const head = r.preview ? "preview (nothing written)" : r.saved
+      ? `${r.saved}${handle ? "\nVisible elements: handle 'last'." : ""}`
+      : `created ${r.created}${handle} · undo: forma_edit {undo:1}`;
+    return [head, table([r.saved ? "unverified path" : "path", "type", "name", "floors", "h_m", "foot_m2", "gfa_m2", "z"], rows),
+      ...(r.warnings ?? []).map((warning: string) => `warning: ${warning}`), r.fix && `fix: ${r.fix}`].filter(Boolean).join("\n");
+  };
 
   server.registerTool("forma_status", {
     description: "Show the connected project, active design option, edit rights and element counts. Pass bridge:'b2' to select a Forma tab.",
@@ -226,31 +240,107 @@ export function registerTools(server: McpServer, link: LinkManager) {
   }, wrap(async (a) => render(await run("metrics", h.resolve(a), { timeoutMs: 60000 }))));
 
   const rules = strictFields({
+    abstand: strictFields({
+      state: z.enum([ABSTAND_DATA[0].code, ...ABSTAND_DATA.slice(1).map((law) => law.code)]).optional().describe("Federal state (e.g. BW, BY, NW). Default: MBO"),
+      area: z.string().trim().min(1).optional().describe("Planning area, e.g. Gewerbegebiet or GE"),
+      allowRoadHalf: z.boolean().optional().describe("Allow adjoining public roads up to the centre line. Default: true"),
+      bayern16m: z.boolean().optional().describe("BayBO Art. 6(5a): confirm municipality and neighbourhood criteria first"),
+    }).optional().describe("Abstandsflächen per façade"),
     maxHeight: z.number().optional().describe("m"), maxFloors: z.number().int().optional(), maxFar: z.number().optional(),
     maxCoverage: z.number().optional().describe("percent of site area"), minSetback: z.number().optional().describe("m from the site boundary"),
     minSpacing: z.number().optional().describe("m between buildings"),
+    maxGrz: z.number().finite().nonnegative().optional().describe("GRZ: footprint / plot area, e.g. 0.4"),
+    maxGrz2: z.number().finite().nonnegative().optional().describe("GRZ II override. Default: 1.5 times maxGrz, capped at 0.8"),
+    ancillaryArea_m2: z.number().finite().nonnegative().optional().describe("Total ancillary area for GRZ II in m². Overrides Forma's parking area"),
+    maxGfz: z.number().finite().nonnegative().optional().describe("GFZ: full-storey floor area divided by plot area"),
+    nonFullTopFloors: z.number().int().nonnegative().optional().describe("Number of top floors to exclude in each building. Default: 0"),
+    maxFullStoreys: z.number().int().nonnegative().optional().describe("Maximum number of full storeys (Vollgeschosse) per building"),
+    insideZone: z.boolean().optional().describe("Require each footprint to fit in one Baufenster"),
+    zone: z.string().trim().min(1).optional().describe("Drawn zone name. Default: all building zones on the site"),
+    zoneRing: z.array(z.array(z.number().finite()).length(2)).min(3).optional().describe("Supply the zone polygon in Forma's local XY metres"),
   });
 
+  const includeContext = z.boolean().optional().describe("Also count buildings Forma does not count (imported/context). Only on explicit request.");
+  const inventoryTable = (rows: (PlotBuilding | ExcludedPlotBuilding)[] | undefined, counted: boolean) => {
+    if (!rows?.length) return "";
+    const m = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+    const display = (a: PlotBuilding["fullFloorArea"]) => a ? `${m.format(a.m2)} (${a.source})` : "unavailable";
+    return [
+      counted ? "" : "On the plot but not counted:",
+      table(counted ? ["Building", "Path", "Counted footprint m2", "Counted GFA m2", "Counted full-storey area m2"]
+        : ["Building", "Path", "Estimated footprint m2", "GFA m2", "Full-storey area m2", "Reason"],
+      rows.map((b) => [b.name ?? b.path, b.path, m.format(b.footprint_m2), display(b.totalFloorArea), display(b.fullFloorArea),
+        ...("reason" in b ? [b.reason] : [])])),
+    ].filter(Boolean).join("\n");
+  };
+  const findingLine = (v: AnyObj) => `- ${v.text}${v.path ? ` [${v.path}${v.facade_index === undefined ? "" : ` façade ${v.facade_index}`}]` : ""}${v.other ? ` [${v.other}${v.other_facade_index === undefined ? "" : ` façade ${v.other_facade_index}`}]` : ""}`;
   server.registerTool("forma_check", {
-    description: "Check planning limits on buildings inside the site boundary or targets from paths|from. show:true colours problems red and other checked buildings green (view only). Distances are metres, coverage is percent.",
-    inputSchema: strictFields({ ...target, rules, show: z.boolean().optional() }),
-    annotations: ro,
+    description: "Check planning rules or estimate capacity. Use add on occupied plots and preview to show a block.",
+    inputSchema: strictFields({ ...target, rules, show: z.boolean().optional(),
+      action: z.enum(["check", "capacity"]).optional(), floorHeight: num, targetUse: str.describe("Forma building use name or ID"),
+      mode: z.enum(["vacant", "add"]).optional(), create: z.boolean().optional(), preview: z.boolean().optional(), includeContext,
+    }),
+    annotations: { destructiveHint: false, openWorldHint: false },
   }, wrap(async (a) => {
+    if (a.action === "capacity") {
+      const r = await run("check", a, { write: a.create === true && !a.preview, timeoutMs: 90000 });
+      const rows: CapacityRow[] = r.rows;
+      const m = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+      const displayConstraint = (value: string) => value === "height" ? "Höhe" : value === "zone" ? "Baufenster" : value;
+      return textResult([
+        r.summary, r.zone && `Baufenster: ${r.zone}`,
+        rows.length ? table(["Geschosse", "Höhe m", "Verfügbare Fläche m²", "Max. Grundfläche m²", "Max. BGF m²", "Maßgebend"],
+          rows.map((row) => [row.storeys, m.format(row.height_m), m.format(row.buildable_m2),
+            m.format(row.maxFootprint_m2), m.format(row.maxGfa_m2), row.constraints.map(displayConstraint).join(", ")])) : "",
+        a.mode === "add" && `Bestand: ${m.format(r.existing.footprint_m2)} m² Grundfläche${r.existing.floorArea_m2 === undefined ? "" : `, ${m.format(r.existing.floorArea_m2)} m² anrechenbare Geschossfläche`}.`,
+        r.baselineRatios && `Baseline: ${kv(r.baselineRatios)}`,
+        inventoryTable(r.existing.inventory, true), inventoryTable(r.existing.excludedContext, false), r.inventoryNote,
+        r.block && `Ein rechteckiger Baukörper: ${r.block.storeys} Geschosse, ${m.format(r.block.footprint_m2)} m² Grundfläche, ${m.format(r.block.gfa_m2)} m² BGF.\nFootprint (local XY in metres, rounded to cm): ${JSON.stringify(r.block.footprintXY_m)}`,
+        `Candidate validation: ${r.validated ? "validated" : r.block ? r.incomplete ? "incomplete" : "hypothetical" : "no candidate"}.`,
+        ...r.assumptions, r.note, r.searchNote,
+        ...(r.checks?.violations ?? []).map(findingLine),
+        ...(r.missingData ?? []).map((s: string) => `- ${s}`),
+        r.baselineNotes?.length && "Baseline data notes:",
+        ...(r.baselineNotes ?? []).map((s: string) => `- ${s}`),
+        r.existingProblems?.length && "Existing problems (not caused by the new block):",
+        ...(r.existingProblems ?? []).map(findingLine),
+        r.fix && `fix: ${r.fix}`, r.placement && renderPlacement(r.placement),
+      ].filter(Boolean).join("\n"), Boolean(r.placement?.saved || (a.create && !a.preview && r.fix)));
+    }
     const r = await run("check", h.resolve(a), { timeoutMs: 90000 });
-    const head = r.ok ? `ALL RULES MET (${r.checked.join(", ")})` : `${r.violations.length} PROBLEM(S)`;
-    const lines = (r.violations as AnyObj[]).map((v) => `- ${v.text}${v.path ? ` [${v.path}]` : ""}`);
-    return [head, ...lines, `summary: ${kv(r.summary)}`, r.skipped?.length ? `not checked: ${r.skipped.join(", ")}` : "", r.missing_outline ? `${r.missing_outline} building(s) without a readable outline were skipped` : "", r.note ?? ""].filter(Boolean).join("\n");
+    const head = r.abstand?.incomplete ? `ABSTANDSFLÄCHEN INCOMPLETE · ${r.violations.length} known problem(s)`
+      : !r.ok ? `${r.violations.length} PROBLEM(S)`
+      : r.skipped?.length ? (r.checked.length ? `ALL CHECKED RULES MET (${r.checked.join(", ")})` : "NO RULES CHECKED")
+      : `ALL RULES MET (${r.checked.join(", ")})`;
+    const lines = (r.violations as AnyObj[]).map(findingLine);
+    const abstand: AbstandResult | undefined = r.abstand;
+    const setback = abstand ? [
+      `Abstandsflächen · ${abstand.state} · ${abstand.area} · Faktor ${abstand.factor ?? "manuell prüfen"} · ${abstand.citation} · ${abstand.url}`,
+      ...abstand.buildings.map((b) => `- ${b.name}: ${b.status === "ok" ? "OK" : b.status === "manual"
+        ? `manuell prüfen (${b.reason})` : `Fehlmaß ${b.minShortfall_m}–${b.maxShortfall_m} m`}`),
+      ...abstand.assumptions,
+      abstand.fix ? `fix: ${abstand.fix}` : "",
+    ] : [];
+    return [head, ...lines, `summary: ${kv(r.summary)}`, inventoryTable(r.excludedContext, false), r.inventoryNote, ...setback, r.skipped?.length ? `not checked: ${r.skipped.join(", ")}` : "", r.missing_outline ? `${r.missing_outline} building(s) without a readable outline were skipped` : "", r.note ?? ""].filter(Boolean).join("\n");
   }));
 
   server.registerTool("forma_report", {
-    description: "Save HTML and CSV design reports with site figures, per-building floor area by use and optional planning checks. Tell the user where the files were saved.",
-    inputSchema: strictFields({ ...target, rules: rules.optional() }),
+    description: "Save HTML and CSV reports with site figures, areas by use and rule checks.",
+    inputSchema: strictFields({ ...target, rules: rules.optional(), germanFigures: z.boolean().optional().describe("Show GRZ, GRZ II and GFZ by default"), show: z.boolean().optional().describe("Show temporary Abstandsflächen strips"), includeContext }),
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, wrap(async (a) => {
     const r = await run("report", h.resolve(a), { timeoutMs: 90000 });
     const f = saveReport(r);
-    const rulesLine = r.check ? `\nrules: ${r.check.ok ? "all met" : `${r.check.violations.length} problem(s)`}` : "";
-    return `saved report for ${r.buildings?.length ?? 0} buildings\nhtml: ${f.html}\ncsv: ${f.csv}${rulesLine}`;
+    const rulesLine = r.check ? `\nrules: ${r.check.ok ? (r.check.skipped?.length ? "no violations found in completed checks" : r.check.checked?.length ? "all met" : "no limits checked") : `${r.check.violations.length} problem(s)`}` : "";
+    const skipped = r.check?.skipped?.length ? `\nnot checked: ${r.check.skipped.join(", ")}` : "";
+    const fix = r.check?.abstand?.fix;
+    const summary = r.check?.summary;
+    const figures = [["grz", "GRZ"], ["grz2", "GRZ II"], ["gfz", "GFZ"]].flatMap(([key, name]) =>
+      typeof summary?.[key] === "number" ? [`${name} ${summary[key]}`] : []);
+    return [`saved report for ${r.buildings?.length ?? 0} buildings\nhtml: ${f.html}\ncsv: ${f.csv}${f.figuresCsv ? `\nfigures csv: ${f.figuresCsv}` : ""}${rulesLine}${skipped}`,
+      figures.length ? `figures: ${figures.join(", ")}` : "",
+      r.check?.plotInventory && `Site ratio contributors: ${r.check.plotInventory.length} building(s), listed in the figures CSV.`,
+      inventoryTable(r.check?.excludedContext, false), r.check?.inventoryNote, fix ? `fix: ${fix}` : "", r.note].filter(Boolean).join("\n");
   }));
 
   server.registerTool("forma_create", {
@@ -273,26 +363,17 @@ export function registerTools(server: McpServer, link: LinkManager) {
     annotations: { destructiveHint: false, openWorldHint: false },
   }, wrap(async (a) => {
     const r = await run("create", a, { write: !a.preview, timeoutMs: 90000 });
-    setLast(r);
-    const rows = (r.items as AnyObj[]).map((x) => [x.path ?? "", x.type, x.name ?? "", x.floors ?? "", x.height ?? "", x.footprint ?? x.area ?? "", x.gfa ?? "", x.z ?? ""]);
-    const handle = r.pathsVerified && r.paths?.length ? " → handle 'last'" : "";
-    const head = r.preview ? "preview (nothing written)" : r.saved
-      ? `${r.saved}${handle ? "\nVisible elements: handle 'last'." : ""}`
-      : `created ${r.created}${handle} · undo: forma_edit {undo:1}`;
-    const unconfirmed = Boolean(r.saved);
-    const pathColumn = unconfirmed ? "unverified path" : "path";
-    const text = [head, table([pathColumn, "type", "name", "floors", "h_m", "foot_m2", "gfa_m2", "z"], rows),
-      ...(r.warnings ?? []).map((warning: string) => `warning: ${warning}`), r.fix && `fix: ${r.fix}`].filter(Boolean).join("\n");
-    return textResult(text, unconfirmed);
+    return textResult(renderPlacement(r), Boolean(r.saved));
   }));
 
   server.registerTool("forma_edit", {
     description: [
-      "Edit elements in ONE atomic, undoable batch. ops[]: {op, paths|from|category, …}",
-      "- move {dx,dy,dz?,rotate?(deg about bbox centre or 'about':[x,y])} · copy {dx,dy,count?} (array copies)",
-      "- remove · rename {name} · props {patch:{'office:info':{k:v}}} (namespace must be 'word:word'; JSON merge patch, null deletes)",
-      "- floors {floors:N (new total) | add:±n} change a building's number of floors; keeps its outline, floor heights and uses. Use this for taller/lower buildings — never remove 'floor' children. Buildings made in Forma's Building Design tool cannot be changed here (tell the user to use that editor).",
-      "Moved/renamed elements get NEW paths (returned, and set as 'last'). undo:n reverts the last n MCP writes. preview:true = dry run.",
+      "Atomic edits. ops[]: {op, paths|from|category, …}. preview:true runs a dry run. undo:n reverts n MCP writes.",
+      "- move {dx,dy,dz?,rotate?(deg about bbox centre or about:[x,y])} · copy {dx,dy,count?}",
+      "- remove · rename {name} · props {patch:{'office:info':{k:v}}} (word:word namespace, null deletes)",
+      "- floors {floors:N|add:±n} changes storey count and keeps outline, heights and uses. Don't remove floor children.",
+      "- footprint {polygon,floors?,floorHeight?|height?} edits outline and floors together. Keeps uses. Use Forma for Building Design buildings.",
+      "Move and rename return new paths in 'last'.",
     ].join("\n"),
     inputSchema: strictFields({
       ops: z.array(editOp).optional(),

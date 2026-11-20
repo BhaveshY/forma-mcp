@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { expect, it, vi } from "vitest";
 import { saveReport } from "../src/server/report.js";
 
-vi.mock("node:fs", () => ({ mkdirSync: vi.fn(), writeFileSync: vi.fn() }));
+vi.mock("node:fs", () => ({
+  mkdirSync: vi.fn(), openSync: vi.fn(() => 1), writeFileSync: vi.fn(), closeSync: vi.fn(), unlinkSync: vi.fn(),
+}));
 
 it.each([
   { write: mkdirSync, code: "EPERM" },

@@ -37,6 +37,10 @@ The panel adds the one thing Forma does not have: **an assistant that changes th
 - **After every change** the panel shows what changed, e.g. "Floor area +1,200 m²", and an **Undo this** button that reverses exactly that request.
 - **Removals ask first:** removing anything shows **Approve / Reject**. Nothing is removed until you approve.
 - **Check planning rules:** height, floors, FAR, site coverage, distance to the site boundary and distance between buildings, against limits you type in. Problem buildings turn red in the 3D view; nothing is changed. Forma has no built-in check against your own limits, so this is not a duplicate.
+- **German planning rules** (not in Forma):
+  - **GRZ, GRZ II and GFZ** as defined in BauNVO §§19–20, plus the number of full storeys and whether buildings stay inside the building zone (Baufenster). Totals use the same buildings as Forma's own area metrics; buildings Forma doesn't count are listed separately.
+  - **Abstandsflächen** for all 16 federal states and the MBO, with each state's factors, minimum depths and reductions by zone type. Results give the shortfall in metres per façade with the § reference, and the strips can be shown in red or green in Forma. Sources are listed in `research/abstandsflaechen.md`. Roofs are treated as flat, so the results suit early massing and do not replace the permit calculation.
+  - **How much can we build here?** For each storey count, the largest legal footprint and floor area and what limits it. It can preview, or on request place, one block that is checked against all rules before saving.
 - **Design report:** saves an HTML page (read or print to PDF) and a CSV for Excel to `Documents\Forma MCP reports`, with key figures, floor area by use, every building on the site and, optionally, the rule check.
 - **Answers are formatted:** lists, tables and bold text, each with a Copy button.
 - **The conversation survives a panel reload.** Forma reloads the panel when you switch design option; the chat and a task that is still running come back, and Stop still works.
@@ -58,7 +62,7 @@ The model and its settings can be changed through environment variables; see [IN
 | `forma_find` | Filtered element table: category, name, function, inside a polygon, selection. Fields: area, height, z, bbox, floors, gfa |
 | `forma_read` | Details for up to 50 elements: props, footprint points, bbox, floor levels, transform |
 | `forma_metrics` | GFA total and per function, site area, coverage, FAR, units, parking |
-| `forma_check` | Planning-rule check: maxHeight, maxFloors, maxFar, maxCoverage (%), minSetback, minSpacing; `show:true` colours problem buildings red |
+| `forma_check` | Planning-rule check: maxHeight, maxFloors, maxFar, maxCoverage (%), minSetback, minSpacing, maxGrz/maxGrz2/maxGfz, maxFullStoreys, insideZone, Abstandsflächen (`abstand:{state,area}`); `show:true` colours problems or draws the strips. `action:"capacity"` calculates the maximum buildable area |
 | `forma_report` | Saves an HTML + CSV design report on the user's computer and returns the file paths |
 | `forma_create` | Buildings (floors, floor heights, function, podium/tower `tiers` with `inset`), masses, site limits, zones, lines, meshes |
 | `forma_edit` | move/rotate, copy arrays, remove, rename, property patch; `undo:n` |

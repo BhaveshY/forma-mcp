@@ -75,7 +75,43 @@ describe("e2e: MCP ⇄ hub ⇄ bridge", () => {
     for (const t of tools) expect(JSON.stringify(t.inputSchema), t.name).not.toMatch(/"items":\[/);
     const schemaChars = JSON.stringify(tools).length;
     console.log(`tool schema size: ${schemaChars} chars (~${Math.round(schemaChars / 4)} tokens)`);
-    expect(schemaChars).toBeLessThan(16000);
+    // Budget includes the shared planning-rule schema advertised by both check and report.
+    expect(schemaChars).toBeLessThan(20000);
+  });
+
+  it("checks Abstandsflächen through the MCP tool", async () => {
+    const result = await A.client.callTool({ name: "forma_check", arguments: { rules: { abstand: { state: "BW", area: "GE" } }, show: true } });
+    expect(result.isError).toBeFalsy();
+    expect(text(result)).toContain("BW · Gewerbegebiet · Faktor 0.125");
+    expect(text(result)).toContain("§§ 5–7");
+    expect(mock.calls.some((c) => c.fn === "geojson.add")).toBe(true);
+  });
+
+  it("returns the capacity table and previews a block through the MCP tool", async () => {
+    const before = mock.calls.filter((c) => c.fn === "batch").length;
+    const result = await A.client.callTool({ name: "forma_check", arguments: {
+      action: "capacity", rules: { maxFullStoreys: 5, maxHeight: 12, maxGrz: 0.2, maxGfz: 0.8 },
+      create: true, preview: true,
+    } });
+    expect(result.isError).toBeFalsy();
+    expect(text(result)).toContain("2.800 m² Bruttogrundfläche bei 4 Vollgeschossen");
+    expect(text(result)).toContain("Maßgebend: GFZ 0,8, GRZ 0,2, Höhenlimit 12 m");
+    expect(text(result)).toContain("preview (nothing written)");
+    expect(mock.calls.filter((c) => c.fn === "batch")).toHaveLength(before);
+  });
+
+  it("renders the clipped inventory and existing problems for an add-mode preview", async () => {
+    const result = await A.client.callTool({ name: "forma_check", arguments: {
+      action: "capacity", mode: "add", rules: { maxHeight: 12, maxGrz: 0.2, maxGfz: 1 }, preview: true,
+    } });
+    expect(result.isError).toBeFalsy();
+    expect(text(result)).toContain("Counted footprint m2");
+    expect(text(result)).toContain("Block A\troot/k2\t200\t1.400 (measured)");
+    expect(text(result)).toContain("Existing problems (not caused by the new block)");
+    expect(text(result)).toContain("Geometrische Obergrenze");
+    expect(text(result)).toMatch(/Footprint \(local XY in metres, rounded to cm\): \[\[/);
+    expect(text(result)).toContain("Candidate validation: validated");
+    expect(text(result)).toContain("preview (nothing written)");
   });
 
   it("serves the bridge page", async () => {

@@ -1,0 +1,888 @@
+// Generated from research/abstandsflaechen.json. Keep the research file as the source.
+type ReducedDepth = { area_type: string; factor: number | "uncertain" | null; min_m: number };
+export type AbstandLaw = {
+  code: string;
+  name: string;
+  statute: string;
+  section: string;
+  version_date: string;
+  url: string;
+  base_factor: number | "uncertain" | null;
+  min_m: number;
+  reduced: readonly ReducedDepth[];
+  wall_height_rule: string;
+  roof_rule: string;
+  schmalseiten: string | null;
+  may_extend_to: readonly string[];
+  overlap_allowed: { allowed: boolean; note: string };
+  exemptions: readonly string[];
+  uncertain: readonly string[];
+  notes: readonly string[];
+};
+
+export const ABSTAND_DATA = [
+  {
+    "code": "MBO",
+    "name": "Musterbauordnung",
+    "statute": "Musterbauordnung (MBO)",
+    "section": "§ 6",
+    "version_date": "2024-09-27",
+    "url": "https://www.is-argebau.de/IndexSearch.aspx?File=bya892ba82y1b9bbba8a4a8yb9bb92b8y9ya8ayyb9y884b992a2a0a1a0a2a2a4ay4b80b8y0li1z5nuafuuglwkgjvf1nxaa&method=get",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Die Giebelwand folgt dem allgemeinen Wandhöhenmaß bis zur Dachhaut; der Bruchteil betrifft den Dachhöhenzuschlag.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 15 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Fassung November 2002, Beschluss der Bauministerkonferenz vom 26./27.09.2024. Muster ohne unmittelbare Landesgeltung.",
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Städtebauliche oder örtliche Satzungen können nach § 6 Abs. 5 abweichende Tiefen ergeben.",
+      "BMK-Rechenhinweis für Grenzgaragen: maßgeblich grenznahe Wand. Bei symmetrischem Giebel und ebenem Gelände Giebelfläche mitteln. https://www.bauministerkonferenz.de/Dokumente/MBO-FAQ/%C2%A7%206%20Abs.%208%20Satz%201%20Nr.%201%20MBO%20-%20Grenzgaragen.pdf"
+    ]
+  },
+  {
+    "code": "BW",
+    "name": "Baden-Württemberg",
+    "statute": "Landesbauordnung für Baden-Württemberg (LBO)",
+    "section": "§§ 5–7",
+    "version_date": "2026-02-28",
+    "url": "https://www.landesrecht-bw.de/bsbw/document/jlr-NNLBW00007BCC/part/X",
+    "base_factor": 0.4,
+    "min_m": 2.5,
+    "reduced": [
+      {
+        "area_type": "Kerngebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Dorfgebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Dörfliches Wohngebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Urbanes Gebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Besonderes Wohngebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.125,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.125,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Sondergebiet, das nicht der Erholung dient",
+        "factor": 0.125,
+        "min_m": 2.5
+      }
+    ],
+    "wall_height_rule": "§ 5 Abs. 4: Tatsächliche Geländeoberfläche nach Ausführung, außer bei Anlage zur Abstandsflächenverkürzung. Bis Wand/Dachhaut oder oberem Wandabschluss. Bei unterschiedlich hohem Gelände arithmetisches Mittel der Höhen an Eckpunkten, bei unterschiedlich hohen oberen Abschlüssen je Wandabschnitt. Tiefe senkrecht zur Wand.",
+    "roof_rule": "§ 5 Abs. 5: Dach oder Dachaufbau bis 45° ohne Zuschlag, >45° bis 70° zu 1/4, >70° voll. Giebelflächen zu 1/4 ab der Horizontalen durch den untersten Wand-Dachhaut-Schnittpunkt.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen. Bei beidseitig anbaubaren Flächen maximal bis zur Mitte.",
+      "Nachbargrundstück mit Baulast nach § 7 gegen Überbauung und Doppelanrechnung. Zulässige Anlagen bleiben möglich."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "§ 5 Abs. 3 nennt als Überdeckungsausnahme Außenwände im Winkel >75°."
+    },
+    "exemptions": [
+      "Garagen, Gewächshäuser und Gebäude ohne Aufenthaltsräume nach § 6 Abs. 1 Nr. 2 mit Wandhöhe ≤3 m und Wandfläche ≤25 m², höchster Geländepunkt maßgebend. 9 m je Nachbargrenze und 15 m insgesamt. Falls mit Abstand errichtet: mindestens 0,50 m.",
+      "Balkone und sonstige Vorbauten bis 5 m Breite, 1,50 m Ausladung und mindestens 2 m zur Nachbargrenze. Untergeordnete Bauteile wie Dachvorsprünge und Eingangsüberdachungen bis 1,50 m Ausladung.",
+      "Gauben, Zwerchgiebel und Aufstockungen bis zwei Geschosse bei rechtmäßigem Bestand nach § 5 Abs. 5, zur Wohnraumschaffung/-erweiterung innerhalb der Außenwände und bei mindestens fünf Jahre zurückliegender Baugenehmigung/Kenntnisgabe. Dachsolar bis 1,50 m Anlagenhöhe und nachträgliche Dachdämmung bis 0,30 m ebenfalls privilegiert."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Bekanntmachung vom 16.03.2026, im Portal gültig ab 28.02.2026.",
+      "Bei Wänden bis einschließlich 5 m Breite gilt in allen Gebietskategorien ein Mindestmaß von 2 m statt 2,50 m. Das ist eine Mindestmaßregel ohne 16-m-Privileg.",
+      "Seit 01.08.2019 gilt 0,2 H auch im urbanen Gebiet und die Dämmprivilegierung wurde von 0,25 m auf 0,30 m erweitert. Das Klimaschutzgesetz vom Februar 2023 brachte die Erleichterung für Aufstockungen. Die Reform 2025 vereinfachte die Giebelanrechnung und erweiterte die Wohnraumprivilegierung auf Gauben und Zwerchgiebel. Die aktuelle Fassung enthält auch das dörfliche Wohngebiet.",
+      "Gesetzeswortlaut §§ 5–7 auch unter https://www.akbw.de/fileadmin/download/dokumenten_datenbank/AKBW_Merkblaetter/Baurecht_Planungsrecht/Merkblatt610_LBO2026.pdf#page=16",
+      "Änderungsgesetz 2019, GBl. Nr. 16 S. 313: https://www.landtag-bw.de/resource/blob/72632/938dad1a4a03b289f94a218641b4db19/GBl201916.pdf und Gesetzesbeschluss 2025: https://www.landtag-bw.de/resource/blob/564068/0deaaf17e7155e655f3e48a23ff2581e/17_8488_D.pdf"
+    ]
+  },
+  {
+    "code": "BY",
+    "name": "Bayern",
+    "statute": "Bayerische Bauordnung (BayBO)",
+    "section": "Art. 6",
+    "version_date": "2026-05-01",
+    "url": "https://www.gesetze-bayern.de/Content/Document/BayBO-6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Abs. 4: Dachhöhe bis einschließlich 70° zu 1/3, bei >70° voll. Dachaufbauten entsprechend. Giebelwand im Regelfall nach Abs. 4 mit ihrer gesamten Höhe und ihrem Verlauf erfassen. Abs. 5a: Dachhöhe bis 45° ohne Zuschlag, >45° bis 70° zu 1/3, >70° voll. Giebelflächen in Abs. 5a bis 70° zu 1/3, >70° voll.",
+    "schmalseiten": "Nur Art. 6 Abs. 5a: In Gemeinden mit >250.000 Einwohnern außerhalb GE, GI, MK und festgesetzter MU, bei überwiegender Prägung der näheren Umgebung durch GK 1–3, gilt 1 H / 3 m. Bis zu zwei Außenwände ≤16 m dürfen 0,5 H / 3 m verwenden, wenn mindestens zwei Außenwände 1 H / 3 m einhalten.",
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück, wenn Nichtüberbaubarkeit rechtlich oder tatsächlich gesichert ist oder der Nachbar gegenüber der Bauaufsicht schriftlich zustimmt. Zustimmung wirkt gegenüber Rechtsnachfolgern. Keine Anrechnung auf die dort erforderlichen Flächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen einschließlich Nebenräume, überdachte Tiefgaragenzufahrten, Tiefgaragenaufzüge und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze. Zusammen mit privilegierten freistehenden Solaranlagen bis 15 m insgesamt. Dachzuschlag >45° bis 70° zu 1/3, >70° voll. Giebel bis 45° außer Ansatz.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, höchstens je 5 m, bis 1,50 m Ausladung und mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "Abs. 5a: Untergeordnete Gauben bis 1/3 der Breite der Außenwand insgesamt, höchstens je 5 m, je ≤4 m² Ansichtsfläche und ≤2,50 m Höhe.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Seit 01.02.2021 wurde die Regelabstandsfläche von 1 H auf 0,4 H verkürzt und die Sonderregel für Großstädte eingeführt. Die aktuelle Fassung begrenzt 1 H zusätzlich auf durch GK 1–3 überwiegend geprägte Umgebung und nimmt festgesetzte urbane Gebiete aus. https://www.verkuendung-bayern.de/files/gvbl/2020/31/gvbl-2020-31.pdf",
+      "Kerngebiete und festgesetzte urbane Gebiete liegen außerhalb der Sonderregel des Abs. 5a. Dort gilt grundsätzlich Abs. 5 mit 0,4 H / 3 m.",
+      "Städtebauliche oder örtliche Satzung nach Art. 81 kann abweichende Maße vorgeben.",
+      "Vollzugshinweise des Bauministeriums, Nr. 1.3–1.4: https://bauministerium.bayern.de/assets/stmi/buw/baurechtundtechnik/24_baybo-vollzugshinweise_2021.pdf"
+    ]
+  },
+  {
+    "code": "BE",
+    "name": "Berlin",
+    "statute": "Bauordnung für Berlin (BauO Bln)",
+    "section": "§ 6",
+    "version_date": "2026-07-23",
+    "url": "https://www.berlin.de/sen/stadt/_assets/service/rechtsvorschriften/bereich-bauen/synopseaendbauobln_durchgeb.pdf?ts=1786365516",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "H ist das Lot von jedem Punkt des oberen Wandabschlusses oder der Dachhaut zur Geländeoberfläche. Tiefe vom zugehörigen Geländepunkt senkrecht zur Wand.",
+    "roof_rule": "Dachhaut, Gauben und Giebelgeometrie punktweise erfassen, vorbehaltlich ausdrücklich ausgenommener Bauteile. Keine Neigungsschwellen oder pauschalen Höhenanteile.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze einschließlich Dachüberstand, Dachneigung ≤45°. Zusammen mit privilegierten freistehenden Solaranlagen und Wärmepumpen bis 15 m insgesamt.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht.",
+      "§ 6 Abs. 6 privilegiert auch Kletterhilfen und Vegetationsträger für Fassadenbegrünung."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Gebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Amtliche Synopse, rechte Spalte, Gesetz für einfaches Bauen vom 09.07.2026, Art. 1 ab 23.07.2026. § 6 Abs. 12 lässt Abstandsflächen bei rechtmäßigem Bestand zur Wohnraumschaffung durch Umnutzung von Nutzungseinheiten mit Aufenthaltsräumen, Dachgeschossausbau oder erstmalige Aufstockung um maximal ein Geschoss außer Betracht. Abs. 10 erleichtert nachträgliche Aufzüge, Treppen und Treppenräume.",
+      "Geringere Abstandsflächen aus Bebauungsplan nach § 6 Abs. 5 Satz 4 möglich."
+    ]
+  },
+  {
+    "code": "BB",
+    "name": "Brandenburg",
+    "statute": "Brandenburgische Bauordnung (BbgBO)",
+    "section": "§ 6",
+    "version_date": "2026-06-30",
+    "url": "https://bravors.brandenburg.de/gesetze/bbgbo_2016#6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Eigene H-Ermittlung für gestaffelte Wandabschnitte, Dächer/Dachaufbauten und vor- oder zurücktretende Bauteile beziehungsweise Vorbauten.",
+    "roof_rule": "§ 6 Abs. 4 bildet eigene Höhen für Dach und Dachaufbauten. Keine Neigungsschwellen, pauschalen Zuschläge oder separate Giebelquote im Wortlaut. Giebelgeometrie beim jeweiligen Wand-/Dachabschnitt berücksichtigen.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten einschließlich Dachsolar: mittlere grenznahe Wandhöhe ≤3 m, 9 m Gesamtgebäudelänge je Grenze, Dachneigung ≤45°. Zusammen mit privilegierten freistehenden Solaranlagen ≤15 m insgesamt.",
+      "Balkone bis 5 m Breite, 2 m Ausladung und mindestens 2 m zur gegenüberliegenden Nachbargrenze. Sonstige Vorbauten bis 1/3 Wandbreite, 2,50 m Ausladung und 2 m Grenzabstand. Für Wintergärten gelten eigene Bedingungen.",
+      "Gesimse und Dachüberstände bis 1 m Ausladung bei mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Gebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Änderungsgesetz vom 29.06.2026, § 6 in Kraft ab 30.06.2026. Balkone bis 2 m, sonstige Vorbauten bis 2,50 m und Dachsolar auf privilegierten Grenzgebäuden ausdrücklich geregelt. § 87 kann abweichende Flächen vorgeben."
+    ]
+  },
+  {
+    "code": "HB",
+    "name": "Bremen",
+    "statute": "Bremische Landesbauordnung (BremLBO)",
+    "section": "§ 6",
+    "version_date": "2026-09-01",
+    "url": "https://zitierfest.de/gesetze/bremlbo/6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Giebel als Außenwand bis zur Dachhaut beurteilen (aus der allgemeinen Wandhöhenregel abgeleitet).",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke bei öffentlich-rechtlicher Sicherung (§ 6 Abs. 3 Nr. 2)."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "§ 6 Abs. 4: Außenwände im Winkel >75° und Wände zu sichtgeschütztem Gartenhof bei Wohngebäuden der GK 1–2. Zulässige Anlagen nach Abs. 8 dürfen innerhalb von Abstandsflächen liegen."
+    },
+    "exemptions": [
+      "Garagen, Carports, Stellplätze, überdachte Fahrradabstellplätze und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe an der Grenze und 9 m je Grenze. Dachüberstände und Gesimse bis insgesamt 0,50 m außer Ansatz. Kombinierte Gesamtlänge nach Abs. 8 Satz 2 bis 18 m.",
+      "Bei Balkonen, Erkern, Treppen, Treppenräumen und Aufzügen bleiben Seiten bis 1,60 m Ausladung außer Ansatz. Fronten zusätzlich nur bis 1/3 Wandbreite insgesamt und bei mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "Untergeordnete Dachaufbauten wie Schornsteine, Abgasanlagen und Antennen sowie Seiten von Dachaufbauten und Dachausschnitten untereinander. Bei Grenzgebäuden zurückspringende Seitenwände und Dächer."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Gebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Abs. 2 nimmt auch nach § 34 Abs. 1 oder 3a BauGB zulässige Vorhaben aus. Nachbarschutz nach Abs. 6 erfasst 3/4 der erforderlichen Tiefe, mindestens 2,50 m. Regelmindesttiefe bleibt 3 m.",
+      "Artikelgesetz Brem.GBl. 2026 S. 623 ändert § 6 ab 01.01.2027. Diese Änderungen liegen nach dem Stichtag. https://www.umwelt-online.de/regelwerk/bau/laender/hb/z26_0623.htm",
+      "Amtliche Verkündung der Neufassung (in Kraft seit 01.07.2024): https://www.gesetzblatt.bremen.de/fastmedia/218/2024_06_24_GBl_Nr_0057_signed.pdf"
+    ]
+  },
+  {
+    "code": "HH",
+    "name": "Hamburg",
+    "statute": "Hamburgische Bauordnung (HBauO)",
+    "section": "§ 6",
+    "version_date": "2026-09-26",
+    "url": "https://dokumente.hamburg.de/resource/blob/1231192/f72fd5750a37f10791dd5c89bd239fc3/2026-09-09-gesamtsynopse-hbauo-2005-hbauo-2025-mit-bauturbo-farbig-data.pdf",
+    "base_factor": 0.4,
+    "min_m": 2.5,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Giebeldreieck als Wand bis zur oberen Wandkontur erfassen. Der frühere Flächenausgleich ist im aktuellen § 6 Abs. 2 entfallen.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte. Bei Grünflächen nur bei Errichtung innerhalb von Baulinien oder Baugrenzen.",
+      "Andere Grundstücke bei öffentlich-rechtlicher Sicherung gegen Überbauung."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 15 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Balkone/Vorbauten bis 1/3 Wandbreite insgesamt und 1,50 m Ausladung, mindestens 2,50 m zur gegenüberliegenden Nachbargrenze. Gesimse/Dachüberstände bis 0,50 m Tiefe.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Behördliche Synopse vom 26.09.2026, rechte Spalte, neue HBauO in Kraft seit 01.01.2026. An Grenzen von GE/GI zu anderen Baugebieten gilt 0,4 H / 2,50 m.",
+      "Die Neufassung begrenzt den Ansatz für Gesimse/Dachüberstände auf 0,50 m und sieht öffentlich-rechtliche Sicherung für die Erstreckung auf andere Grundstücke vor.",
+      "Behördliche FAQ 2020, § 6 Abs. 4 zur Giebelwand, soweit der Wandhöhenwortlaut in der Neufassung fortgeführt ist: https://www.hamburg.de/resource/blob/190284/553ed9c05d0bcf090c18643e534441e0/faq-06-hbauo-abstandsflaechen-data.pdf#page=7"
+    ]
+  },
+  {
+    "code": "HE",
+    "name": "Hessen",
+    "statute": "Hessische Bauordnung (HBO)",
+    "section": "§ 6",
+    "version_date": "2025-10-14",
+    "url": "https://wirtschaft.hessen.de/sites/wirtschaft.hessen.de/files/2025-12/hbo_broschuere_stand_oktober_2025-baupaket_i-final_nach_korrektur_vom_27.11.2025.pdf",
+    "base_factor": 0.4,
+    "min_m": 2.5,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Vergleichbar genutztes Sondergebiet",
+        "factor": 0.2,
+        "min_m": 2.5
+      },
+      {
+        "area_type": "Im Zusammenhang bebauter Ortsteil mit GE-/GI-entsprechender tatsächlicher Nutzung",
+        "factor": 0.2,
+        "min_m": 2.5
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Bei Staffelung separat. Bei geneigtem Gelände oder Wandabschluss darf Wandfläche/größte Wandbreite gemittelt werden, je Abschnitt höchstens 16 m.",
+    "roof_rule": "Dächer/Dachteile >70° gelten als Wand, >45° bis 70° zählen zu 1/3. Aufbauten in Flucht oder bis 0,50 m Rücksprung sowie Aufbauten mit Gesamtbreite >1/2 je Dachfläche gelten als Wand. Bei Dach ≤45° und Aufbauten >1/5 bis einschließlich 1/2 der Wandbreite zählt deren Höhe zu 1/3, sofern sie nicht bereits als Wand gelten. Kein gesonderter Giebelzuschlag im Wortlaut. Giebelwand bis zur Dachhaut mit geneigtem oberen Abschluss messen. Eine Mittelung ist nach Abs. 4 möglich.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Winkel >75°, sichtgeschützte Gartenhöfe bei Wohngebäuden mit höchstens zwei Wohnungen und zulässige oder zulassungsfähige Anlagen."
+    },
+    "exemptions": [
+      "Grenznahe Garagen nach Abs. 10 unmittelbar an der Nachbargrenze oder mit mindestens 1 m Abstand. Mittlere grenzseitige Wandhöhe ≤3 m, Wandfläche an jeder Nachbargrenze insgesamt ≤25 m², gemeinsame Grenzbebauung bis 15 m einschließlich Dachüberständen. Abs. 9 erlaubt erdgeschossige Kleingaragen bis 100 m² in Abstandsflächen eines Gebäudes und zu diesem ohne eigene Abstandsfläche.",
+      "Untergeordnete Balkone und Erker bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung und mindestens 2 m zu Nachbargrenzen. Bei gestapelten Balkonen wird überdeckte Breite nur einmal gezählt.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Abs. 5: Vor Anwendung des Mindestmaßes auf volle 0,10 m abrunden. 0,2 H gilt für GE/GI und gleichgestellte Nutzungen mit Ausnahme der Grenzen zu Gebieten anderer Nutzung.",
+      "Abs. 7: Für öffnungslose Wände in GE/GI, außer gegenüber Nachbargrenzen, genügen 1,50 m bei feuerhemmender Ausführung und nichtbrennbaren Baustoffen einschließlich Verkleidung. Bei nur einer dieser Eigenschaften genügen 2,50 m.",
+      "§ 6 Abs. 11 lässt verbindliche Satzungsfestsetzungen und abweichende Gebäudeabstände nach § 34 Abs. 1 BauGB vorgehen. Die 16 m in Abs. 4 beziehen sich auf die Höhenmittelung."
+    ]
+  },
+  {
+    "code": "MV",
+    "name": "Mecklenburg-Vorpommern",
+    "statute": "Landesbauordnung Mecklenburg-Vorpommern (LBauO M-V)",
+    "section": "§ 6",
+    "version_date": "2026-06-12",
+    "url": "https://land-mv.de/sites/default/files/2026-10/LBauO_2026.pdf",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Gewachsenes Gelände nach Abs. 9, erforderlichenfalls behördliche Festsetzung unter Würdigung nachbarlicher Belange.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Giebel als Außenwand bis zur Dachhaut beurteilen (aus der allgemeinen Wandhöhenregel abgeleitet).",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 15 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Gesimse/Dachüberstände einschließlich Rinne bis 0,50 m Ausladung.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [
+      "reduced"
+    ],
+    "notes": [
+      "Gesetz vom 26.05.2026, in Kraft seit 12.06.2026. § 6 Abs. 5 Nr. 1–3 setzt nun Festtiefen für Gebäude: GK 1–3 3 m, GK 4 4 m, GK 5 5 m. Nr. 4 nennt GE/GI und Außenbereichsantennen mit 0,2 H / 3 m. Nr. 5 ist die Auffangregel 0,4 H / 3 m.",
+      "Uncertain – § 6 Abs. 5 nennt keine ausdrückliche Rangfolge zwischen Nr. 1–3 und Nr. 4 bei klassifizierten Gebäuden in GE/GI. Die beiden Tatbestände ausweisen und vor einer automatischen Entscheidung die Anwendung klären.",
+      "Abs. 1: Abweichende Gebäudeabstände nach § 34 Abs. 1 Satz 1 BauGB können Abstandsflächen entbehrlich machen.",
+      "Die Begründung (LT-Drs. 8/5681 S. 56–57) behandelt GE/GI als Fortführung von 0,2 H / 3 m, ohne für den Überschneidungsfall eine ausdrückliche Kollisionsregel zu nennen. https://www.dokumentation.landtag-mv.de/parldok/dokument/68905/gesetz_zur_aenderung_der_landesbauordnung_mecklenburg_vorpommern_und_des_architekten_und_ingenieurge.pdf"
+    ]
+  },
+  {
+    "code": "NI",
+    "name": "Niedersachsen",
+    "statute": "Niedersächsische Bauordnung (NBauO)",
+    "section": "§§ 5–7",
+    "version_date": "2025-06-25",
+    "url": "https://openlex.de/niedersachsen/nbauo/5",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Gebiet mit GE-/GI-entsprechender baulicher Nutzung",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "§ 5 Abs. 1, 6 und 9: H ist für jeden oberirdischen Außenflächenpunkt dessen Höhe über dem Gelände. Abstand zur nächsten Lotrechten über der Grenzlinie. Gewachsenes Gelände, Abgrabungen berücksichtigen, Aufschüttungen grundsätzlich nur zur Angleichung an vorhandenes oder genehmigtes Nachbargelände. Behördliche Festsetzung möglich. Bei aufragendem, zurückgesetztem Gebäudeteil über zulässiger Grenzbebauung gilt Sonderbezug zur Oberfläche des niedrigeren Grenzbauteils.",
+    "roof_rule": "Dachhaut und Giebel als Außenflächen punktweise erfassen. Keine Neigungsschwelle und kein Bruchteilzuschlag. § 5 Abs. 3 und 4 privilegiert bestimmte Vorsprünge und Aufbauten.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Benachbarte öffentliche Straßenverkehrsflächen bis zur Mittellinie, mit Baulast nach § 6 Abs. 2 auch darüber hinaus.",
+      "Öffentliche Grün- und Wasserflächen sowie Betriebsflächen öffentlicher Eisen- und Straßenbahnen mit Eigentümerzustimmung entsprechend der Straßenregel.",
+      "Andere benachbarte Grundstücke bis zur gedachten Grenze, wenn eine Baulast den vorgeschriebenen Abstand der Nachbaranlagen zu dieser Grenze sichert."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "§ 7 verwendet eine gedachte Grenze zwischen getrennten Gebäuden, entsprechend auch für bestimmte Anlagen und Terrassen >1 m. Unterschreitung bei Brandschutz, Tageslicht und Lüftung für bestimmte GE/GI-, Land-/Forst- und § 5 Abs. 8 Satz 4-Fälle. Gebäudeteile oder angebaute Gebäude mit einander zugekehrten Teilen <75° grundsätzlich ebenfalls mit Abstand. Ausnahme für Gauben, Balkone und geringfügig vor-/zurücktretende Teile, weitere Unterschreitung bei fensterlosen Aufenthaltsraumseiten sowie ausreichendem Brandschutz und Lüftung. § 7 Abs. 4 fordert 6 m zwischen bestimmten Wohnraumfenstern bei einem Winkel <120°."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m Höhe direkt an der Grenze oder mit Abstand bis hinab auf 1 m. Gemeinsame Unterschreitung nach § 5 Abs. 8 Satz 4 bis 9 m je Grenze und 15 m je Grundstück. Dachsolar bis 0,70 m Höhe bei mindestens 1 m Grenzabstand.",
+      "Dachüberstände/Gesimse dürfen bis 0,50 m in den Grenzabstand hineinragen. Balkone, Gauben und weitere genannte Bauteile: insgesamt bis 1/3 Wandbreite, Unterschreitung bis 1,50 m und höchstens 1/3 des erforderlichen Abstands."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Konsolidierungsstand 25.06.2025 (Nds. GVBl. Nr. 52). § 5 Abs. 1 erlaubt Abrunden auf volle 0,10 m. Die GE/GI-Regel entfällt, soweit das Nachbargrundstück am betreffenden Abschnitt einen größeren Abstand einhalten müsste.",
+      "Weitere Normtexte: https://openlex.de/niedersachsen/nbauo/6 und https://openlex.de/niedersachsen/nbauo/7"
+    ]
+  },
+  {
+    "code": "NW",
+    "name": "Nordrhein-Westfalen",
+    "statute": "Bauordnung für das Land Nordrhein-Westfalen (Landesbauordnung 2018 – BauO NRW 2018)",
+    "section": "§ 6",
+    "version_date": "2026-09-01",
+    "url": "https://recht.nrw.de/lrgv/gesetz/01092026-landesbauordnung-2018-bauo-nrw-2018/",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Kerngebiet",
+        "factor": 0.25,
+        "min_m": 3
+      },
+      {
+        "area_type": "Kerngebiet zu öffentlicher Verkehrs-, Grün- oder Wasserfläche",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Urbanes Gebiet zu öffentlicher Verkehrs-, Grün- oder Wasserfläche",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Unterschiedlich hohe Wandteile separat. Bei geneigtem Gelände mittlere Höhe aus Gebäudekanten oder senkrechten Wandteilgrenzen. Abgrabungen für Belichtung, Zugang oder Zufahrt bleiben außer Ansatz.",
+    "roof_rule": "Dächer/Dachteile >70° voll, >45° bis 70° zu 1/3. Bei Dachgauben/Dachaufbauten mit Gesamtlänge >1/2 der darunter liegenden Gebäudewand je Dachfläche zählt die Dachhöhe zu 1/3, sofern sie nicht schon voll zählt. Giebelflächen voll, wenn beide Seiten >70° haben, sonst zu 1/3.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke bei öffentlich-rechtlicher Sicherung, dass nur in der Abstandsfläche zulässige Anlagen überbauen. Keine Doppelanrechnung."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige oder gestattete Anlagen."
+    },
+    "exemptions": [
+      "Garagen einschließlich Abstellräumen und Gebäude bis 30 m³ ohne Aufenthaltsräume mit höchstens 3 m mittlerer Wandhöhe. Zusammenzurechnende Anlagen bis 9 m je Nachbargrenze, insgesamt bis 18 m. Dachterrassen, Balkone und Altane auf diesen Anlagen mit mindestens 3 m Grenzabstand.",
+      "Vorbauten/Balkone insgesamt bis 1/3 Wandbreite, bis 1,60 m Ausladung und mindestens 2 m zur gegenüberliegenden Nachbargrenze. Gesimse und Dachüberstände bis 1,50 m.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "§ 6 Abs. 5 verlangt zu angrenzenden anderen Baugebieten die jeweils größere Tiefe. Satzungen nach § 89 oder städtebauliche Satzungen können die Tiefe abweichend bestimmen.",
+      "Der konsolidierte Stand 01.09.2026 führt die letzte Änderung des § 6 mit Wirkung vom 01.01.2024 auf."
+    ]
+  },
+  {
+    "code": "RP",
+    "name": "Rheinland-Pfalz",
+    "statute": "Landesbauordnung Rheinland-Pfalz (LBauO)",
+    "section": "§§ 8–9",
+    "version_date": "2025-11-19",
+    "url": "https://openlex.de/rheinland-pfalz/lbauo/8",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.25,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.25,
+        "min_m": 3
+      },
+      {
+        "area_type": "Kerngebiet",
+        "factor": null,
+        "min_m": 3
+      },
+      {
+        "area_type": "Sondergebiet, das nicht der Erholung dient",
+        "factor": null,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Mittlere Höhe der Wand beziehungsweise des Wandteils, vor- oder zurücktretende Wandteile separat. Unter dem Giebel Waagerechte auf Höhe der Schnittlinien, bei unterschiedlichen Höhen mittig, bei Pultdächern an der unteren Schnittlinie.",
+    "roof_rule": "Dächer/Dachteile >70° voll, >45° bis 70° zu 1/3. Dachhöhe auch zu 1/3 bei Aufbauten zusammen breiter als die halbe Wand, soweit nicht bereits voll angerechnet. Giebel voll bei Summe der Dachneigungen >140° oder Pultdach >70°, sonst zu 1/3. Giebelhöhe innerhalb eines Dreiecks mit 8 m Grundlinie auf Bezugshöhe und 4 m Höhe bleibt außer Ansatz, außer bei Dachaufbauten <1,50 m vom Giebel.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- oder Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke nach § 9 Abs. 1 mit Zulassung und öffentlich-rechtlicher Sicherung gegen Überbauung und Doppelanrechnung. Vorschriften über zulässige Überbauung bleiben anwendbar."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "§ 8 Abs. 3 verbietet Überdeckung vor gegenüberstehenden Wänden. Ausnahmen für Winkel >75° und in Abstandsflächen zulässige oder zugelassene Anlagen. Abs. 9 ermöglicht unter Bedingungen geringere Tiefen vor Wänden desselben Grundstücks bei Winkeln ≤75°."
+    },
+    "exemptions": [
+      "Garagen ohne Feuerstätten und weitere Gebäude nach § 8 Abs. 8 an der Grenze oder bis 3 m davon: mittlere Wandhöhe ≤3,20 m, ≤12 m je Grenze, ≤18 m insgesamt. Dach zur Grenze ≤45°, Grenzgiebel ≤4 m. Höhen und Längen nach Satz 1 betreffen nur Wände/Wandteile mit Winkel ≤75° zur Grenze. Innerhalb von Abstandsflächen anderer Gebäude gelten Tageslicht- und Brandschutzbedingungen.",
+      "Untergeordnete Vorbauten wie Balkone bis 1,50 m Ausladung mit mindestens 2 m zur gegenüberliegenden Grundstücksgrenze. Gauben über die Dachregel nach § 8 Abs. 4."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Kerngebiete und nicht der Erholung dienende Sondergebiete: geringere Tiefe als 0,4 H kann bei rechtfertigender Gebietsnutzung zugelassen werden. Kein numerischer Ersatzfaktor festgelegt. Mindesttiefe 3 m.",
+      "Konsolidierung zuletzt geändert 19.11.2025. Das 2025er Änderungspaket erweiterte unter anderem § 8 Abs. 11 zu Maßnahmen im Bestand. Zwingende Planfestsetzungen, § 248 BauGB und örtliche Bauvorschriften können nach Abs. 10 abweichen.",
+      "§ 9: https://openlex.de/rheinland-pfalz/lbauo/9"
+    ]
+  },
+  {
+    "code": "SL",
+    "name": "Saarland",
+    "statute": "Landesbauordnung des Saarlandes (LBO)",
+    "section": "§§ 7–8",
+    "version_date": "2025-08-27",
+    "url": "https://openlex.de/saarland/lbo/7",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Kerngebiet",
+        "factor": null,
+        "min_m": 3
+      },
+      {
+        "area_type": "Sondergebiet, das nicht der Erholung dient",
+        "factor": null,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand. Bei Giebelwänden obere Verbindungslinie der Wand-Dachhaut-Schnittpunkte. Bei geneigtem oberen Abschluss oder geneigtem Gelände mittlere Höhe, bei Staffelung je Abschnitt.",
+    "roof_rule": "Dächer/Dachteile >70° voll, >45° bis 70° zu 1/3. Dachhöhe zu 1/3 bei Aufbauten zusammen breiter als die halbe darunterliegende Wand, soweit nicht schon voll angerechnet. Giebel voll bei Summe der Dachneigungen ≥140°, sonst zu 1/3.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück nach § 8 Abs. 5 bei öffentlich-rechtlicher Sicherung gegen Überbauung oder wenn tatsächlich nicht überbaubar. Zusätzlich zu den dort vorgeschriebenen Flächen freihalten."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Winkel >75°, zulässige oder gestattete Anlagen und sichtgeschützte Gartenhöfe bei Wohngebäuden mit höchstens zwei Wohnungen."
+    },
+    "exemptions": [
+      "Grenzgaragen einschließlich Abstellraum und weitere Anlagen nach § 8 Abs. 2 Nr. 4 bis 12 m je Grenze. Für Nr. 4 und Nr. 6 zusammen ≤15 m insgesamt. Mittlere grenzseitige Wandhöhe ≤3 m, First ≤4 m, darüber zur Grundstücksgrenze ansteigende Dächer ≤45°, keine Gauben. Bei Abstand zur Grenze mindestens 1 m. § 8 Abs. 2 enthält weitere Bedingungen für Nebenanlagen und Solaranlagen.",
+      "Vorbauten/Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung und mindestens 2 m zu Grundstücksgrenzen. Für Hauseingangstreppen, deren Überdachungen und Behindertenaufzüge mindestens 1,50 m statt 2 m. Gesimse/Dachüberstände einschließlich Rinne bis 0,50 m.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Kerngebiet und nicht der Erholung dienendes Sondergebiet: geringere Tiefe kann zugelassen werden, ohne bezifferten Faktor. Mindesttiefe 3 m.",
+      "§ 8 Abs. 1: In GE/GI sind vor öffnungslosen Wänden außer gegenüber Grundstücksgrenzen 1,50 m bei feuerhemmender Ausführung und nichtbrennbaren Baustoffen einschließlich Verkleidung zulässig, 2,50 m bei nur einer Eigenschaft.",
+      "Ergänzend § 8 https://openlex.de/saarland/lbo/8 und amtliche § 7-Fassung gültig ab 26.04.2025 https://recht.saarland.de/bssl/document/jlr-NNLSL00009DF9NN00000000038"
+    ]
+  },
+  {
+    "code": "SN",
+    "name": "Sachsen",
+    "statute": "Sächsische Bauordnung (SächsBO)",
+    "section": "§ 6",
+    "version_date": "2024-03-19",
+    "url": "https://www.revosax.sachsen.de/vorschrift/1779-SaechsBO",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Sächsische Vollzugsvorschrift Nr. 6.4: Giebelseitige Wandhöhe punktweise als gestauchtes Abbild, Gauben und Zwerchgiebel separat ermitteln und überprojizieren.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke bei rechtlicher Sicherung gegen Überbauung nach § 6 Abs. 2. Die Vorschrift verlangt im Wortlaut rechtliche Sicherung."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 15 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Seit der Änderung vom 01.03.2024 gilt für Windenergieanlagen im Außenbereich oder Windenergie-Sondergebiet 0,1 H / mindestens 3 m (§ 6 Abs. 5 Satz 3). Städtebauliche Satzung oder Satzung nach § 89 kann abweichende Tiefen vorgeben.",
+      "VwVSächsBO Nr. 6.4: https://www.revosax.sachsen.de/vorschrift/2374-VwVSaechsBO"
+    ]
+  },
+  {
+    "code": "ST",
+    "name": "Sachsen-Anhalt",
+    "statute": "Bauordnung des Landes Sachsen-Anhalt (BauO LSA)",
+    "section": "§ 6",
+    "version_date": "2026-01-24",
+    "url": "https://openlex.de/sachsen-anhalt/bauo-lsa/6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Geländeoberfläche bis zum Schnittpunkt Außenwand/Dachhaut oder oberen Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dachhöhe zu 1/3 bei Neigung <70°, voll ab 70°. Dachaufbauten entsprechend. Kein eigener Giebelkoeffizient im Normtext. Giebel als Außenwand bis zur Dachhaut beurteilen (aus der allgemeinen Wandhöhenregel abgeleitet).",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Nachbargrundstück bei öffentlich-rechtlicher Sicherung gegen Überbauung (regelmäßig Baulast), ohne Anrechnung auf dessen erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 15 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Gesimse und Dachüberstände bis 0,80 m Ausladung.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Änderungsgesetz vom 14.01.2026 (GVBl. LSA S. 10), § 6 ab 24.01.2026. Abs. 7 unterscheidet nun Energiesparmaßnahmen bis 0,40 m Stärke bei ≥2,60 m Grenzabstand und Solaranlagen bis 0,25 m Stärke bei ≥2,75 m. https://www.umwelt-online.de/regelwerk/bau/laender/lsa/z26_0010.htm",
+      "Städtebauliche Satzung oder Satzung nach § 85 kann abweichende Tiefen vorgeben."
+    ]
+  },
+  {
+    "code": "SH",
+    "name": "Schleswig-Holstein",
+    "statute": "Landesbauordnung für das Land Schleswig-Holstein (LBO)",
+    "section": "§ 6",
+    "version_date": "2024-12-13",
+    "url": "https://www.umwelt-online.de/regelwerk/bau/laender/sh/bo24.htm#6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "Festgesetzte oder bauaufsichtlich bestimmte Geländeoberfläche, sonst natürliches Gelände (§ 2). Höhe bis Wand/Dachhaut oder oberem Wandabschluss. Tiefe senkrecht zur Wand.",
+    "roof_rule": "Dächer/Dachteile >70° voll, >45° bis 70° zu 1/4. Dachhöhe auch zu 1/4 bei Gauben/Aufbauten je Dachfläche zusammen breiter als die halbe Gebäudewand, soweit nicht schon voll angerechnet. § 6 nennt keinen gesonderten Giebelzuschlag. Für Giebelwände gilt daher der Schnittpunkt der Wand mit der Dachhaut als obere Bezugslinie (Ableitung aus der allgemeinen Wandhöhenregel).",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke, wenn dies öffentlich-rechtlich gesichert ist."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "Ausnahmen für Außenwände im Winkel >75°, Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2 und in der Abstandsfläche zulässige Anlagen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 18 m für die gesetzlich zusammenzurechnenden Anlagen.",
+      "Vorbauten einschließlich Balkone bis 1/3 Wandbreite insgesamt, 1,50 m Ausladung, mindestens 2 m zur gegenüberliegenden Nachbargrenze.",
+      "An Grenzgebäuden bleiben Seitenwände von Vorbauten und Dachaufbauten auch bei Grenzrücksprung außer Betracht.",
+      "Bei gesetzlich erfasster Bestandsänderung nach Abs. 9 sind Gauben so anzuordnen, dass sie keine unzumutbaren Nachbarbelästigungen oder -störungen verursachen."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Wohngebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "Konsolidierter Gesetzeswortlaut zur Bekanntmachung vom 05.07.2024, einschließlich Änderung vom 13.12.2024. Die 2024er Novelle ergänzte unter anderem § 34 Abs. 1 BauGB und reduzierte Abstände für bestimmte Windkraft- und Antennenanlagen. https://www.umwelt-online.de/regelwerk/bau/laender/sh/z24_0445.htm",
+      "GE/GI-Reduktion entfällt an Grenzen zu Gebieten anderer Nutzung. Abweichende Satzungswerte nach Abs. 5 und nach § 34 Abs. 1 BauGB zulässige abweichende Gebäudeabstände nach Abs. 1 prüfen. Landesportal: https://www.gesetze-rechtsprechung.sh.juris.de/perma?j=BauO_SH"
+    ]
+  },
+  {
+    "code": "TH",
+    "name": "Thüringen",
+    "statute": "Thüringer Bauordnung (ThürBO)",
+    "section": "§ 6",
+    "version_date": "2026-07-06",
+    "url": "https://www.umwelt-online.de/regelwerk/bau/laender/th/bo24.htm#6",
+    "base_factor": 0.4,
+    "min_m": 3,
+    "reduced": [
+      {
+        "area_type": "Gewerbegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Industriegebiet",
+        "factor": 0.2,
+        "min_m": 3
+      },
+      {
+        "area_type": "Sondergebiet mit GE-/GI-vergleichbarer Nutzung",
+        "factor": 0.2,
+        "min_m": 3
+      }
+    ],
+    "wall_height_rule": "H ist das Lot von jedem Punkt des oberen Wandabschlusses oder der Dachhaut zur Geländeoberfläche. Tiefe vom zugehörigen Geländepunkt senkrecht zur Wand.",
+    "roof_rule": "Dachhaut, Gauben und Giebelgeometrie punktweise erfassen, vorbehaltlich ausdrücklich ausgenommener Bauteile. Keine Neigungsschwellen oder pauschalen Höhenanteile. Für privilegierte Grenzgaragen bleibt die von Dächern bis 45° erzeugte Fläche außer Ansatz.",
+    "schmalseiten": null,
+    "may_extend_to": [
+      "Eigenes Baugrundstück.",
+      "Öffentliche Verkehrs-, Grün- und Wasserflächen bis zur Mitte.",
+      "Andere Grundstücke mit Baulast, die eine Überbauung auf in der Abstandsfläche zulässige Anlagen beschränkt. Keine Anrechnung auf dort erforderliche Abstandsflächen."
+    ],
+    "overlap_allowed": {
+      "allowed": false,
+      "note": "§ 6 Abs. 3: Ausnahme für Außenwände im Winkel >75° sowie Wände zu einem sichtgeschützten Gartenhof von Wohngebäuden der GK 1–2. Abs. 7 erlaubt bestimmte Anlagen innerhalb von Abstandsflächen."
+    },
+    "exemptions": [
+      "Garagen und Gebäude ohne Aufenthaltsräume und Feuerstätten bis 3 m mittlere Wandhöhe und 9 m je Grenze, insgesamt 18 m für die gesetzlich zusammenzurechnenden Anlagen. Die von Dächern bis 45° erzeugte Abstandsfläche bleibt außer Ansatz.",
+      "Vorbauten einschließlich Balkone: Seiten bis 1,60 m Ausladung. Zugewandte Vorderseiten unter zusätzlicher Grenze von insgesamt 1/3 Wandbreite und mindestens 2 m Abstand zur gegenüberliegenden Nachbargrenze.",
+      "Untergeordnete Dachaufbauten wie Schornsteine, Abgasanlagen und Antennen sowie Seiten von Dachaufbauten/Dachausschnitten untereinander und Wände von Dachausschnitten. Bei Grenzgebäuden zurückspringende Seitenwände und Dächer."
+    ],
+    "uncertain": [],
+    "notes": [
+      "Pauschal 3 m vor Gebäuden der GK 1–2 mit höchstens drei oberirdischen Geschossen.",
+      "ThürBO vom 02.07.2024, geändert am 06.07.2026 (GVBl. S. 150). § 97 und städtebauliche Satzung können eine andere Tiefe bestimmen.",
+      "Lesefassung der Einzelnorm: https://www.landesrecht.online/TH/Th%C3%BCrBO/6"
+    ]
+  }
+] as const satisfies readonly AbstandLaw[];
+
+export type AbstandState = typeof ABSTAND_DATA[number]["code"];

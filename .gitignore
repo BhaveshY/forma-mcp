@@ -45,3 +45,4 @@ token
 *.bak
 Thumbs.db
 Desktop.ini
+*-report.md

@@ -2,9 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChildProcess, spawn, spawnSync } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { transformSync } from "esbuild";
 import { WebSocket } from "ws";
 import { ExecRunner, mapEvent, resolveCodex, SIGN_IN_FIX, type AiEvent } from "../src/server/codex.js";
 import { Hub } from "../src/server/link.js";
@@ -40,6 +41,20 @@ function collect(r: ExecRunner, opts: { prompt: string; threadId?: string; env?:
   const h = r.start({ ...opts, onEvent: (e) => ev.push(e) });
   return { ev, h, done: h.done.then(() => ev) };
 }
+
+it.each([["codex-auth-expired", 1], ["codex-success", 0]])("exits correctly after live-ai receives %s", (scenario, code) => {
+  mkdirSync(join(dir, "src/server"), { recursive: true });
+  mkdirSync(join(dir, "scripts"));
+  writeFileSync(join(dir, "package.json"), '{"type":"module"}');
+  for (const file of ["src/server/log", "src/server/codex", "scripts/live-ai"]) {
+    const source = readFileSync(join(__dirname, "..", file + ".ts"), "utf8");
+    writeFileSync(join(dir, file + ".js"), transformSync(source, { loader: "ts" }).code);
+  }
+  const run = spawnSync(process.execPath, [join(dir, "scripts/live-ai.js")], { encoding: "utf8",
+    env: { ...process.env, LOCALAPPDATA: dir, FORMA_MCP_SERVER_PATH: join(dir, "unused-server.js"), FAKE_CODEX_SCENARIO: scenario } });
+  expect(run.stdout).toContain(code ? "error: Codex is signed out." : "done:");
+  expect(run.status).toBe(code);
+});
 
 describe("event mapping (real recordings)", () => {
   const replay = (name: string) => {
@@ -182,6 +197,8 @@ describe("hub ⇄ panel assistant messages", () => {
     expect(evs.at(-1)).toMatchObject({ kind: "done", text: "The FAR is 0.4." });
     const c = calls()[0];
     expect(c.stdin).toMatch(/Use ONLY the forma tools/); // wrapped prompt
+    expect(c.stdin).toMatch(/inventory scope through to create.*default metrics inventory unless the user explicitly asks/);
+    expect(c.stdin).toMatch(/buildings listed as not counted.*labelled sensitivity check/);
     expect(c.argv.join(" ")).toMatch(new RegExp(`FORMA_MCP_PORT="${port}",FORMA_MCP_APPROVAL="panel"`));
     ws.close();
     await hub.close();

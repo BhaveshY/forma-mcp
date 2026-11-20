@@ -8,11 +8,17 @@ import type { Msg } from "../shared/protocol.js";
 
 declare const __BUILD__: string | undefined;
 const BUILD = typeof __BUILD__ !== "undefined" ? __BUILD__ : "dev";
-const ops = new Ops(Forma);
+const ops = new Ops(Forma, logLine);
 const $ = (id: string) => document.getElementById(id)!;
 const log: string[] = [];
 let panel: ReturnType<typeof mountPanel> | undefined;
 let lastState: { state: string; text: string } | undefined;
+
+function logLine(line: string) {
+  log.unshift(`${new Date().toLocaleTimeString()}  ${line}`);
+  log.length = Math.min(log.length, 20);
+  $("log").textContent = log.join("\n");
+}
 
 // Stable id for this browser tab (survives reloads), so a task stays in the window that started it.
 const tabId = (() => {
@@ -30,13 +36,16 @@ const markActive = () => {
   if (client?.connected) client.push({ t: "focus" } satisfies Msg);
 };
 
-async function info() {
-  const [canEdit, project, proposalId] = await Promise.all([
-    ops.editAccess(),
-    Forma.project.get().catch(() => undefined),
-    Forma.proposal.getId().catch(() => undefined),
-  ]);
-  return { projectId: Forma.getProjectId(), projectName: project?.name, proposalId, region: Forma.getRegion(), canEdit, sdk: "0.96", tabId, build: BUILD };
+function info(reset = false) {
+  return ops.runInOrder(async () => {
+    if (reset) ops.resetSession();
+    const [canEdit, project, proposalId] = await Promise.all([
+      ops.editAccess(),
+      Forma.project.get().catch(() => undefined),
+      Forma.proposal.getId().catch(() => undefined),
+    ]);
+    return { projectId: Forma.getProjectId(), projectName: project?.name, proposalId, region: Forma.getRegion(), canEdit, sdk: "0.96", tabId, build: BUILD };
+  });
 }
 
 // ---- assistant transport: the hub runs `codex exec` on the user's subscription ----
@@ -86,8 +95,7 @@ const client = new BridgeClient({
     return ops.run(op, args);
   },
   info: async () => {
-    ops.resetSession();
-    const i = await info();
+    const i = await info(true);
     panel?.setCanEdit(i.canEdit);
     return i;
   },
@@ -97,11 +105,7 @@ const client = new BridgeClient({
     panel?.setConnection(state, text);
     $("count").textContent = String(client?.stats.served ?? 0);
   },
-  onLog: (line) => {
-    log.unshift(`${new Date().toLocaleTimeString()}  ${line}`);
-    log.length = Math.min(log.length, 20);
-    $("log").textContent = log.join("\n");
-  },
+  onLog: logLine,
   onMessage: (m) => {
     if (m.t === "ai.status") waiters.get(m.id)?.(m.status), waiters.delete(m.id);
     else if (m.t === "ai.event") {
@@ -130,6 +134,7 @@ Forma.selection.subscribe(({ paths }) => { markActive(); panel?.setSelection(pat
 for (const ev of ["pointerdown", "keydown", "focus"]) addEventListener(ev, markActive, { capture: true });
 Forma.selection.getSelection().then((p) => panel?.setSelection(p)).catch(() => {});
 Forma.proposal.subscribe(() => panel?.modelChanged(), { debouncedPersistedOnly: true }).catch(() => {});
+Forma.udm.subscribe(({ rootUrn }) => ops.observeRevision(rootUrn)).catch(() => {});
 
 addEventListener("online", () => client.nudge());
 addEventListener("focus", () => client.nudge());
