@@ -68,5 +68,6 @@ if (process.argv.includes("--release")) {
     copyFileSync(from, `release/forma-mcp/${to}`);
   // Installed panels compare this with their own build to offer "Update now".
   writeFileSync("release/forma-mcp/version.json", JSON.stringify({ version: pkg.version, build: BUILD }) + "\n");
+  writeFileSync("release/forma-mcp/package.json", JSON.stringify({ type: "commonjs" }) + "\n"); // repo root is ESM; the bundle is CJS
   console.log("release/forma-mcp ready");
 }
